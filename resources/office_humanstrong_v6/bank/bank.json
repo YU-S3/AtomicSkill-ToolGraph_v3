@@ -1,0 +1,2900 @@
+{
+  "schema": "human.frontier.bank.v1",
+  "benchmark": "officeqa",
+  "method_version": "office.humanstrong.programmatic.v6.20261021",
+  "seed": 42,
+  "asset_origin": "external_human_edited_reference_not_learned_ours",
+  "admission": {
+    "learning_provenance": false,
+    "train_transfer_gate": false,
+    "utility_promotion": false
+  },
+  "input_protocol": "office.external-minimax.public-pages.v1",
+  "default_workflow_id": null,
+  "workflow_runtime": "stored_reference_only_native_dynamic_runtime",
+  "measured_performance": null,
+  "status": "authored_reference_offline_validation_only",
+  "source_basis": "V5 public execution failures reviewed; authored development Bank, not unseen-Test evidence.",
+  "skill": [
+    {
+      "kind": "skill",
+      "title": "OA-Target",
+      "goal": "Bind the requested category, operation and output before choosing a computation",
+      "guidance": "Match the question's exact business category, periods, statistic and output template. A subtype is not a broader total. Compute when the required operands and period coverage are available; otherwise retrieve the specific missing fact. Neither a successful calculation nor a numeric output proves that the question was answered.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "skill_e878da455dbcf7dc863acc5d3e985609dc5698efc480c1c23ed4bd24c05afbff"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Locate",
+      "goal": "Retrieve a specific missing source fact",
+      "guidance": "Use supplied pages first. Search only the missing period, category or header in candidate documents; read a hit's table body, unit and footnotes. scoped_search can batch search and reading. Avoid overlapping rereads and stop retrieval when the necessary evidence is complete.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "skill_c58e52baef27dfeae868957fd8f0a5882f527087461929054d4d509d8b2a4e3d"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Table",
+      "goal": "Bind literal source rows to the complete column hierarchy",
+      "guidance": "Select exact rows, leaf column, literal unit and publication scope. Multilevel headers require the observed parent-to-leaf path. Missing-value dashes are not zero. table_calculate is optional for a complete scalar calculation supported by its schema; for irregular tables or compound formulas use source-bound Python. Do not redo a successful computation merely to call a Bank Program.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "skill_460e1371dc983adf0cb6c0eff37f7ba519e2f0095417e7c539bf51eac14bf7aa"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Units",
+      "goal": "Keep source units, calculation scale and requested display distinct",
+      "guidance": "Convert units only when the question requires it and an explicit factor is known. A ratio, percent and percentage-point difference have different scales. Preserve unrounded operands; apply requested rounding once at output. A percent suffix does not itself multiply by 100. Use the question's output template, including whether it requests a unit suffix.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "skill_c5448a1acf7aa3921ff2e9ba6c9465fc4d19b4dcaeaadc98143c385e14fa2461"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Stats",
+      "goal": "Select the exact requested arithmetic convention",
+      "guidance": "Execute the requested operation once operands are complete. Base-relative change uses the base denominator; symmetric difference uses the midpoint; annualized growth uses elapsed intervals. Do not substitute one for another. Use a named Program only when its operation matches; otherwise explicit Python is valid. Preserve intermediate precision.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "skill_7204df1b06f62747770f29c75ccaadc6e25d21ec819fc76f15cd0ab48c5fc089"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Commit",
+      "goal": "Submit a supported answer with the requested format and no unnecessary recomputation",
+      "guidance": "Confirm that the selected result answers every requested quantity; an input value or diagnostic count is not a final result. computed_scalar or computed_list can format matching executed results without another model rewrite. table_calculate can submit a complete supported scalar calculation. Native finish remains valid for an already established answer, including dates/text. Do not force a Program or recheck merely to end the task.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "skill_76437a03a7647293e3ef80f50ff12106519308bba82c142ef5db7546284dad84"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Fallback",
+      "goal": "Resolve the current execution refusal using evidence",
+      "guidance": "Repair the specific reported field from observed source or schema, not guessed alternatives. If a table remains ambiguous, obtain clearer evidence or compute explicitly from a verified source. A subsequent successful computation need not repeat an earlier refused Program. Contract success does not establish question semantics.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "skill_064ba8d3e0e22156f266facce733efc530edd18cd95f6716320ac4c7bd3b7df0"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Periods",
+      "goal": "Preserve complete observation coverage and time basis",
+      "guidance": "List required periods and match fiscal/calendar basis. Inclusive observation count differs from elapsed intervals. Do not omit periods, interpolate missing values or mix vintages silently. Forecast error requires the target-period actual, not the last fitting observation.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "skill_ce17eb07fe9111e9a19f5db293a5861fb585ddbecd4dd375cc67d0cd00567e0f"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Fiscal",
+      "goal": "Distinguish fiscal/calendar periods, flows and stocks",
+      "guidance": "Follow the source's fiscal-year definition and transition quarters. Compare flows over matching intervals and stocks at matching dates. Monthly, year-to-date and annual totals are distinct.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "skill_71a047e0926fdef32f01bc30a0f1da2a0c28a8d91bd1c6c5112e862ac2491e99"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Treasury",
+      "goal": "Preserve Treasury categories and source conventions",
+      "guidance": "Distinguish outstanding debt, issuance/redemption, holdings and net changes; keep security and investor subtypes separate. Price ticks, fine/troy weights and exchange-rate direction require the source convention. A nearby total is not automatically the target.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "skill_a5fe9f3a34c19eb0fa209d475fea276dd0d1dd0e95f6753181cda7603afc7b76"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Revision",
+      "goal": "Bind the publication vintage and as-of basis",
+      "guidance": "When the question names an issue, report or as-of date, use that vintage. Preserve preliminary/revised/adjusted status and footnotes. Later revisions are not substitutes for the originally reported value.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "skill_d390c779f34390f5f0e85d351def9da862deca2066eb7cf6dc783bf008ab09b6"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Correlation",
+      "goal": "Align paired series and distinguish correlation from regression",
+      "guidance": "Align x and y by identical periods and coverage. Pearson correlation is dimensionless; OLS slope depends on which series is dependent. Do not reverse dependent/independent variables, omit a period or use rounded intermediate values.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "skill_f44335534f4818d000759baaf423faa820dd7b78b3cdeadc63c320df7b4f6be5"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Polynomial",
+      "goal": "Fit the specified polynomial and evaluate the requested forecast or error",
+      "guidance": "Use the specified degree, intercept, ordered observations, time coordinates and prediction horizon. Forecast error additionally requires the independently observed target actual. Polynomial OLS is not ARIMA or an arbitrary alternative forecast; use the named Program or explicit NumPy when its assumptions fit.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "skill_48eabcf715842a6ce5317f1f7a4e6243ddf35a1dc8ee31d908523c7b7db9d979"
+    },
+    {
+      "kind": "skill",
+      "title": "OA-Dispersion",
+      "goal": "Apply the requested CV, z-score or distribution statistic",
+      "guidance": "Keep the original series distinct from first differences. Bind population/sample convention before variance, standard deviation, CV or z-score; z-score also needs the specified observation. CV divides standard deviation by the mean. For Gini, preserve the requested population/sample adjustment. Do not transfer a convention between different statistics.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "skill_89d9b5fd680fe32b4120ad54b6e84303a04aa6dc4f41081cfe4f5ffbe2d2a4d0"
+    }
+  ],
+  "program": [
+    {
+      "source": "\"\"\"Bounded Office retrieval using only advertised native tools and actual hits.\"\"\"\n\n\ndef run(ctx,inputs):\n    try:\n        query=inputs['query']\n        if not isinstance(query,str) or not query.strip():raise ValueError('nonempty query required')\n        available={t['name'] for t in ctx.available_tools()}\n        paths=inputs.get('paths');pattern=inputs.get('file_pattern')\n        if paths is None and pattern:\n            r=ctx.call('glob',{'pattern':pattern})\n            if not r.get('accepted'):return {'status':'blocked','outputs':{},'detail':r.get('error','glob failed')}\n            paths=r['data']\n        maximum=min(4,max(1,inputs.get('max_windows',3)))\n        pages=min(4,max(1,inputs.get('max_pages',2)))\n        before=min(4000,max(0,inputs.get('before',1000)));after=min(8000,max(500,inputs.get('after',3500)))\n        args={'pattern':query}\n        if paths is not None:args['paths']=paths\n        hits=[];complete=False;cursor=None;seen=set()\n        for _ in range(pages):\n            if ctx.remaining_calls()<=0:break\n            if 'grep_page' in available:\n                call={**args,'limit':40}\n                if cursor is not None:call['cursor']=cursor\n                r=ctx.call('grep_page',call)\n                if not r.get('accepted'):return {'status':'blocked','outputs':{},'detail':r.get('error','search failed')}\n                data=r['data'];hits.extend(data['hits']);complete=data['complete'];cursor=data.get('next_cursor')\n                if complete or not cursor or cursor in seen or len(hits)>=maximum:break\n                seen.add(cursor)\n            else:\n                r=ctx.call('grep',args)\n                if not r.get('accepted'):return {'status':'blocked','outputs':{},'detail':r.get('error','search failed')}\n                hits.extend(r['data']);complete=len(r['data'])<40;break\n        windows=[];read_seen=set();read_errors=[]\n        for hit in hits:\n            if len(windows)>=maximum or ctx.remaining_calls()<=0:break\n            path,offset=hit['path'],hit['offset'];key=(path,offset)\n            if key in read_seen:continue\n            read_seen.add(key)\n            if 'read_context' in available:\n                r=ctx.call('read_context',{'path':path,'offset':offset,'before':before,'after':after})\n                if not r.get('accepted'):read_errors.append(r.get('error','read_context failed'));continue\n                data=r['data'];start=data['start_offset'];text=data['text']\n            else:\n                start=max(0,offset-before);r=ctx.call('read',{'path':path,'offset':start})\n                if not r.get('accepted'):read_errors.append(r.get('error','read failed'));continue\n                text=r['data']['text'][:before+after]\n            if text:windows.append({'path':path,'start_offset':start,'hit_offset':offset,'text':text})\n        if not windows and read_errors:return {'status':'blocked','outputs':{},'detail':str(read_errors)}\n        if not windows:return {'status':'not_found' if complete and not hits else 'needs_input','outputs':{},\n            'detail':'No acquired matching window; broaden query/scope or read an actual hit. Incomplete search is not proof of absence.'}\n        return {'status':'ok','outputs':{'windows':windows,'search_exhausted':complete,\n            'target_periods_complete':None,'table_header_bound':False,'next_cursor':cursor,\n            'scope':'retrieval_window_only'}}\n    except (KeyError,ValueError,TypeError) as e:return {'status':'needs_input','outputs':{},'detail':str(e)}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "file_pattern": {
+            "type": "string"
+          },
+          "max_pages": {
+            "type": "integer"
+          },
+          "max_windows": {
+            "type": "integer"
+          },
+          "before": {
+            "type": "integer"
+          },
+          "after": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "start_offset": {
+                  "type": "integer"
+                },
+                "hit_offset": {
+                  "type": "integer"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "start_offset",
+                "hit_offset",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "type": "string"
+          },
+          "search_exhausted": {
+            "type": "boolean"
+          },
+          "target_periods_complete": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "table_header_bound": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "windows",
+          "search_exhausted",
+          "target_periods_complete",
+          "table_header_bound",
+          "next_cursor",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [
+        "glob",
+        "grep",
+        "grep_page",
+        "read",
+        "read_context"
+      ],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "retrieval_program",
+        "description": "Scoped issue/text retrieval (local windows only)",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.programmatic.v2.20261020",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "id": "program_b81b047cbb68a37ed1501de4fe096dad8459d0211229fea640d632135d607b6a",
+      "source_file": "../office_humanstrong_v2/programs/scoped_search.py",
+      "title": "Scoped issue/text retrieval (local windows only)"
+    },
+    {
+      "source": "\"\"\"Literal table selection: reject conflicting headers instead of guessing columns.\"\"\"\nimport re\nfrom decimal import Decimal\n\n\nclass SelectionError(ValueError):\n    def __init__(self, code, detail, **context):\n        super().__init__(detail)\n        self.recovery = {'code': code, **context}\n\n\ndef norm(value):\n    return ' '.join(value.casefold().split())\n\n\ndef label_key(value):\n    # A terminal punctuation mark is presentation, not a different month/category.\n    # Footnotes, words, years and internal punctuation are not stripped.\n    return norm(value).rstrip('.')\n\n\ndef cells(line):\n    value = line.strip()\n    if '|' in value:\n        if value.startswith('|'): value = value[1:]\n        if value.endswith('|'): value = value[:-1]\n        return [cell.strip() for cell in value.split('|')]\n    return [cell.strip() for cell in re.split(r'\\t+| {2,}', value)]\n\n\ndef number(value):\n    value = re.sub(r'(?<=\\d)[*†‡]+$', '', value.strip()).replace(',', '')\n    if not re.fullmatch(r'\\(?[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)\\)?', value):\n        raise ValueError('not a complete numeric cell')\n    if value.startswith('('):\n        if not value.endswith(')'): raise ValueError('unbalanced numeric parentheses')\n        value = '-'+value[1:-1]\n    elif value.endswith(')'): raise ValueError('unbalanced numeric parentheses')\n    return str(Decimal(value))\n\n\ndef run(ctx, inputs):\n    try:\n        text, wanted, column = inputs['text'], inputs['rows'], inputs['column']\n        if not isinstance(text, str) or not text.strip() or not wanted:\n            raise SelectionError('missing_table', 'Supply a complete table window, including headers and units.')\n        if len({label_key(row) for row in wanted}) != len(wanted):\n            raise SelectionError('duplicate_requested_row', 'Requested rows must be distinct.')\n        raw = text.splitlines(keepends=True)\n        parsed = [cells(line) for line in raw]\n        offsets, cursor = [], 0\n        for line in raw: offsets.append(cursor); cursor += len(line)\n        separator = lambda row: len(row) > 1 and all(re.fullmatch(r':?-{2,}:?', c) for c in row)\n        def numeric_row(row):\n            for value in row[1:]:\n                try: number(value); return True\n                except ValueError: pass\n            return False\n        def data_row(index):\n            # Markdown's delimiter identifies a header even when its labels are years.\n            row = parsed[index]\n            if index+1 < len(parsed) and separator(parsed[index+1]): return False\n            # Empty leading cells identify continuation headers, including year labels.\n            if not row[0] and any(row[1:]): return False\n            # Section labels and missing-value data rows end a header block too.\n            missing = {'', '-', '–', '—', '...', '…', 'n/a', 'na'}\n            return numeric_row(row) or (\n                bool(row[0]) and all(norm(value) in missing for value in row[1:]))\n        candidates = []\n        for index, row in enumerate(parsed):\n            if len(row) < 2 or data_row(index) or separator(row): continue\n            for col, value in enumerate(row[1:], 1):\n                if norm(value) == norm(column): candidates.append((index, col))\n        blocks = {}\n        for index, col in candidates:\n            lo, hi = index, index+1\n            while lo and len(parsed[lo-1]) > 1 and not data_row(lo-1): lo -= 1\n            while hi < len(raw) and len(parsed[hi]) > 1 and not data_row(hi): hi += 1\n            if inputs.get('header_hint') and norm(inputs['header_hint']) not in norm(' '.join(raw[max(0, lo-6):hi])):\n                continue\n            blocks[(lo, hi, col)] = None\n        if len(blocks) > 1 and inputs.get('header_path'):\n            selected = {}\n            for lo, hi, col in blocks:\n                path = []\n                for row in parsed[lo:hi]:\n                    if not separator(row) and col < len(row) and row[col] and (not path or norm(row[col]) != norm(path[-1])):\n                        path.append(row[col])\n                if [norm(p) for p in path] == [norm(p) for p in inputs['header_path']]:\n                    selected[(lo, hi, col)] = None\n            blocks = selected\n        if len(blocks) != 1:\n            raise SelectionError('ambiguous_header', 'Supply one table with a unique requested column and header_hint.',\n                                 column=column, matches=len(blocks))\n        (lo, hi, col), = blocks\n        headers = [row for row in parsed[lo:hi] if not separator(row)]\n        if any(len(row) != len(headers[0]) for row in headers):\n            raise SelectionError('header_width_conflict', 'Header widths differ; obtain an unambiguous source.',\n                                 headers=raw[lo:hi])\n        path = []\n        for row in headers:\n            if row[col] and (not path or norm(row[col]) != norm(path[-1])): path.append(row[col])\n        # A parent heading must never be mistaken for a different child column.\n        if not path or norm(path[-1]) != norm(column):\n            raise SelectionError('header_conflict', 'Requested heading conflicts with the leaf column; do not guess an index.',\n                                 column=column, column_path=path, headers=raw[lo:hi])\n        supplied_path = inputs.get('header_path')\n        if len(path) > 1 and [norm(p) for p in (supplied_path or [])] != [norm(p) for p in path]:\n            raise SelectionError('header_path_required', 'Bind the full observed parent-to-leaf header_path.',\n                                 column_path=path, headers=raw[lo:hi])\n        unit = inputs['unit']\n        if not unit or norm(unit) not in norm(text):\n            raise SelectionError('unit_missing', 'Quote the source unit literally; display units are a separate field.',\n                                 unit=unit)\n        scope = inputs.get('scope_quote')\n        if scope and scope not in ''.join(raw[max(0, lo-6):hi]):\n            raise SelectionError('scope_missing', 'scope_quote must occur in this table title/header.')\n        end = hi\n        while end < len(raw) and len(parsed[end]) > 1 and not separator(parsed[end]): end += 1\n        matches = []\n        for label in wanted:\n            found = []\n            for index in range(hi, end):\n                row = parsed[index]\n                if not row or label_key(row[0]) != label_key(label): continue\n                if len(row) != len(headers[0]):\n                    raise SelectionError('row_width_conflict', 'Data row width differs from its header.', row=label)\n                try: value = number(row[col])\n                except ValueError:\n                    raise SelectionError('nonnumeric_cell', 'Requested cell is not a complete number.', row=label, column=column)\n                found.append({'row': label, 'matched_row': row[0], 'column': column, 'value': value, 'unit': unit,\n                    'source_line': index+1, 'start': offsets[index], 'end': offsets[index]+len(raw[index].rstrip('\\r\\n')),\n                    'quote': raw[index].rstrip('\\r\\n'), 'header': ''.join(raw[lo:hi]).rstrip(),\n                    'column_path': path, 'scope_quote': scope})\n            if len(found) != 1:\n                raise SelectionError('row_missing_or_ambiguous', 'Select one literal row; never substitute a broader category.',\n                    row=label, matches=len(found), available_rows=[row[0] for row in parsed[hi:end]][:30])\n            matches.extend(found)\n        return {'status': 'ok', 'outputs': {'cells': matches, 'values': [x['value'] for x in matches],\n            'header': ''.join(raw[lo:hi]).rstrip(), 'unit': unit, 'requested_rows': wanted,\n            'table_header_bound': True, 'target_periods_complete': True,\n            'scope': 'Literal source selector only; caller must match question category and period.',\n            'proof_scope': 'literal columns/rows only; caller binds question scope and convention'}}\n    except (KeyError, ValueError, TypeError, ArithmeticError) as exc:\n        return {'status': 'needs_input', 'outputs': {}, 'detail': str(exc),\n                'recovery': getattr(exc, 'recovery', {'code': 'invalid_selector'})}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "column": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "header_hint": {
+            "type": "string"
+          },
+          "header_path": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          },
+          "scope_quote": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "text",
+          "rows",
+          "column",
+          "unit"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "cells": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "row": {
+                  "type": "string"
+                },
+                "column": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "source_line": {
+                  "type": "integer"
+                },
+                "start": {
+                  "type": "integer"
+                },
+                "end": {
+                  "type": "integer"
+                },
+                "quote": {
+                  "type": "string"
+                },
+                "matched_row": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "header": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "column_path": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "scope_quote": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "row",
+                "column",
+                "value",
+                "unit",
+                "source_line",
+                "start",
+                "end",
+                "quote"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "type": "string"
+          },
+          "header": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "requested_rows": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "table_header_bound": {
+            "type": "boolean"
+          },
+          "target_periods_complete": {
+            "type": "boolean"
+          },
+          "proof_scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cells",
+          "values",
+          "scope",
+          "header",
+          "unit",
+          "requested_rows",
+          "table_header_bound",
+          "target_periods_complete",
+          "proof_scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "table_program",
+        "description": "Exact bounded table row/column extraction",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "id": "program_cc0801fc5400b57b7880d95cf7114143d0713b40ae62f838c8040b5aa9d74cba",
+      "source_file": "programs/table_extract.py",
+      "title": "table_extract: literal rows with validated leaf headers; ambiguous hierarchy returns repair feedback"
+    },
+    {
+      "source": "\"\"\"Named formulas with explicit conventions; computation, not operand provenance.\"\"\"\nimport math\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef run(ctx,inputs):\n    try:\n        op=inputs['operation'];direction='as_supplied';formula=op\n        named={'difference','ratio','percent_change','log_return','cagr','annual_log_growth'}\n        if 'output_scale' in inputs:raise ValueError('output_scale is unsupported; specify output_percent explicitly')\n        if op in named:\n            if 'values' in inputs:raise ValueError('This operation requires named operands, not positional values')\n            if op=='difference':\n                raw=[inputs['from_value'],inputs['to_value']]\n                if type(inputs['absolute']) is not bool:raise ValueError('absolute must be explicit boolean')\n                formula='abs(to_value-from_value)' if inputs['absolute'] else 'to_value-from_value'\n                direction='absolute' if inputs['absolute'] else 'to_minus_from'\n            elif op=='ratio':\n                raw=[inputs['denominator'],inputs['numerator']];formula='numerator/denominator';direction='numerator_over_denominator'\n            else:\n                raw=[inputs['base_value'],inputs['new_value']];direction='base_to_new'\n                formula={'percent_change':'(new_value-base_value)/base_value','log_return':'ln(new_value/base_value)',\n                         'cagr':'exp(ln(new_value/base_value)/periods)-1',\n                         'annual_log_growth':'ln(new_value/base_value)/periods'}[op]\n        else:raw=inputs['values']\n        if not isinstance(raw,list) or not raw or len(raw)>5000:raise ValueError('1..5000 values required')\n        if any(type(v) not in (str,int,float) for v in raw):raise ValueError('numeric strings/numbers required')\n        with localcontext() as context:\n            context.prec=50\n            x=[Decimal(str(v)) for v in raw]\n            if any(not v.is_finite() for v in x):raise ValueError('nonfinite operand')\n            n=Decimal(len(x));mean=sum(x)/n;convention=op\n            if op=='sum':v=sum(x)\n            elif op=='mean':v=mean\n            elif op=='symmetric_difference':\n                if len(x)!=2:raise ValueError('values must be [first,second]')\n                v=abs(x[1]-x[0])/((abs(x[0])+abs(x[1]))/2)\n                formula='abs(second-first)/((abs(first)+abs(second))/2)';direction='absolute_symmetric'\n            elif op=='share_difference':\n                if len(x)!=4:raise ValueError('values must be [first_part,first_total,second_part,second_total]')\n                if type(inputs.get('absolute')) is not bool:raise ValueError('absolute must be explicit boolean')\n                v=x[2]/x[3]-x[0]/x[1]\n                formula='second_part/second_total-first_part/first_total';direction='second_share_minus_first_share'\n                if inputs['absolute']:v=abs(v);formula='abs('+formula+')';direction='absolute_share_difference'\n            elif op=='median':\n                a=sorted(x);mid=len(a)//2;v=a[mid] if len(a)%2 else (a[mid-1]+a[mid])/2\n            elif op in {'difference','ratio','percent_change','log_return','cagr','annual_log_growth'}:\n                if len(x)!=2:raise ValueError('exactly two values in [start,end] order required')\n                a,b=x\n                if op=='difference':v=abs(b-a) if inputs['absolute'] else b-a\n                elif op=='ratio':v=b/a\n                elif op=='percent_change':v=(b-a)/a\n                else:\n                    if a<=0 or b<=0:raise ValueError('growth operands must be positive')\n                    ratio=b/a\n                    if op=='log_return':v=ratio.ln()\n                    else:\n                        periods=Decimal(str(inputs.get('periods','0')))\n                        if periods<=0:raise ValueError('positive elapsed interval count required, not observation count')\n                        v=ratio.ln()/periods if op=='annual_log_growth' else (ratio.ln()/periods).exp()-1\n            elif op in {'std_population','std_sample','variance_population','variance_sample'}:\n                denominator=n-(1 if op.endswith('sample') else 0)\n                if denominator<=0:raise ValueError('sample requires at least two observations')\n                v=sum((a-mean)**2 for a in x)/denominator\n                if op.startswith('std_'):v=v.sqrt()\n            elif op in {'gini_population','gini_sample_adjusted'}:\n                if min(x)<0 or sum(x)<=0:raise ValueError('Gini requires nonnegative values and positive sum')\n                a=sorted(x);v=sum(Decimal(2*i-len(a)-1)*z for i,z in enumerate(a,1))/(n*sum(a))\n                if op=='gini_sample_adjusted':\n                    if n<=1:raise ValueError('sample correction requires n>1')\n                    v=v*n/(n-1)\n            elif op in {'correlation','ols_slope','ols_intercept'}:\n                raw_y=inputs.get('other_values',[])\n                if len(raw_y)!=len(x) or len(x)<2:raise ValueError('paired x/y arrays of equal length required')\n                y=[Decimal(str(z)) for z in raw_y]\n                if any(not z.is_finite() for z in y):raise ValueError('nonfinite y')\n                my=sum(y)/n;sxx=sum((a-mean)**2 for a in x);sxy=sum((a-mean)*(b-my) for a,b in zip(x,y))\n                if sxx==0:raise ValueError('zero x variance')\n                slope=sxy/sxx\n                if op=='ols_slope':v=slope\n                elif op=='ols_intercept':v=my-slope*mean\n                else:\n                    syy=sum((b-my)**2 for b in y)\n                    if syy==0:raise ValueError('zero y variance')\n                    v=sxy/(sxx*syy).sqrt()\n            elif op=='geometric_growth':\n                if any(1+a<=0 for a in x):raise ValueError('growth factors must be positive')\n                v=(sum((1+a).ln() for a in x)/n).exp()-1\n            else:raise ValueError('unsupported named operation')\n            percent=inputs.get('output_percent',False)\n            if type(percent) is not bool:raise ValueError('output_percent must be boolean')\n            if percent:\n                if op not in {'ratio','percent_change','cagr','geometric_growth','symmetric_difference','share_difference'}:raise ValueError('percent output is not supported for this operation')\n                v*=100;formula='100*('+formula+')'\n            digits=inputs.get('decimals')\n            if digits is not None:\n                if type(digits) is not int or not 0<=digits<=18:raise ValueError('decimals must be 0..18')\n                answer=format(v.quantize(Decimal(1).scaleb(-digits),rounding=ROUND_HALF_UP),'.'+str(digits)+'f')\n            else:answer=format(v,'f').rstrip('0').rstrip('.') if '.' in format(v,'f') else format(v,'f')\n            if answer in ('-0',''):answer='0'\n            return {'status':'ok','outputs':{'value':str(v),'answer':answer,'formula':formula,'direction':direction,\n                'operand_refs':inputs.get('operand_refs',[]),'periods':str(inputs.get('periods','not_applicable')),\n                'unit':inputs['unit'],'output_percent':percent,'proof_scope':'local_computation_only',\n                'convention':convention,'count':len(x)}}\n    except (KeyError,ValueError,TypeError,ArithmeticError) as e:return {'status':'needs_input','outputs':{},'detail':str(e)}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decimals": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "result_id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "integer"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "result_id",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "output_percent": {
+            "type": "boolean"
+          },
+          "operation": {
+            "enum": [
+              "difference",
+              "ratio",
+              "percent_change",
+              "log_return",
+              "cagr",
+              "annual_log_growth",
+              "sum",
+              "mean",
+              "median",
+              "std_population",
+              "std_sample",
+              "variance_population",
+              "variance_sample",
+              "gini_population",
+              "gini_sample_adjusted",
+              "correlation",
+              "ols_slope",
+              "ols_intercept",
+              "geometric_growth",
+              "symmetric_difference",
+              "share_difference"
+            ]
+          },
+          "from_value": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "to_value": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "absolute": {
+            "type": "boolean"
+          },
+          "numerator": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "denominator": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "base_value": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "new_value": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "periods": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": [
+                "number",
+                "string"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 5000
+          },
+          "other_values": {
+            "type": "array",
+            "items": {
+              "type": [
+                "number",
+                "string"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 5000
+          }
+        },
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "properties": {
+              "operation": {
+                "const": "difference"
+              }
+            },
+            "required": [
+              "operation",
+              "from_value",
+              "to_value",
+              "absolute",
+              "unit"
+            ],
+            "propertyNames": {
+              "enum": [
+                "unit",
+                "decimals",
+                "operand_refs",
+                "output_percent",
+                "operation",
+                "from_value",
+                "to_value",
+                "absolute"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "operation": {
+                "const": "ratio"
+              }
+            },
+            "required": [
+              "operation",
+              "numerator",
+              "denominator",
+              "output_percent",
+              "unit"
+            ],
+            "propertyNames": {
+              "enum": [
+                "unit",
+                "decimals",
+                "operand_refs",
+                "output_percent",
+                "operation",
+                "numerator",
+                "denominator"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "percent_change",
+                  "log_return",
+                  "cagr",
+                  "annual_log_growth"
+                ]
+              }
+            },
+            "required": [
+              "operation",
+              "base_value",
+              "new_value",
+              "output_percent",
+              "unit"
+            ],
+            "propertyNames": {
+              "enum": [
+                "unit",
+                "decimals",
+                "operand_refs",
+                "output_percent",
+                "operation",
+                "base_value",
+                "new_value",
+                "periods"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "sum",
+                  "mean",
+                  "median",
+                  "std_population",
+                  "std_sample",
+                  "variance_population",
+                  "variance_sample",
+                  "gini_population",
+                  "gini_sample_adjusted",
+                  "correlation",
+                  "ols_slope",
+                  "ols_intercept",
+                  "geometric_growth"
+                ]
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 5000
+              }
+            },
+            "required": [
+              "operation",
+              "values",
+              "unit"
+            ],
+            "propertyNames": {
+              "enum": [
+                "unit",
+                "decimals",
+                "operand_refs",
+                "output_percent",
+                "operation",
+                "values",
+                "other_values"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "operation": {
+                "const": "symmetric_difference"
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "required": [
+              "operation",
+              "values",
+              "unit",
+              "output_percent"
+            ],
+            "propertyNames": {
+              "enum": [
+                "unit",
+                "decimals",
+                "operand_refs",
+                "output_percent",
+                "operation",
+                "values"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "operation": {
+                "const": "share_difference"
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "minItems": 4,
+                "maxItems": 4
+              }
+            },
+            "required": [
+              "operation",
+              "values",
+              "unit",
+              "output_percent",
+              "absolute"
+            ],
+            "propertyNames": {
+              "enum": [
+                "unit",
+                "decimals",
+                "operand_refs",
+                "output_percent",
+                "operation",
+                "values",
+                "absolute"
+              ]
+            }
+          }
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          },
+          "formula": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "periods": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "proof_scope": {
+            "type": "string"
+          },
+          "convention": {
+            "type": "string"
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "result_id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "integer"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "result_id",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "output_percent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "value",
+          "answer",
+          "formula",
+          "direction",
+          "operand_refs",
+          "periods",
+          "unit",
+          "proof_scope",
+          "convention",
+          "count",
+          "output_percent"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "calculation_program",
+        "description": "Typed arithmetic on already acquired operands",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.programmatic.v2.20261020",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "id": "program_c76cbe063d5676e5d9e4a1beb6fb3befadbbfd7097e24f894c8abe513b475c61",
+      "source_file": "../office_humanstrong_v2/programs/series_metrics.py",
+      "title": "Exact scalar/series formulas; explicit change, symmetric difference, share difference and units"
+    },
+    {
+      "source_file": "../office_humanstrong_v2/programs/period_ledger.py",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "state": "candidate",
+      "result_role": "intermediate",
+      "allowed_tools": [],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "required_periods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "maxItems": 240
+          },
+          "observations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "period": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "source_ref": {
+                  "type": "object",
+                  "properties": {
+                    "result_id": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "result_id",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "period",
+                "value",
+                "unit",
+                "source_ref"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 500
+          }
+        },
+        "required": [
+          "required_periods",
+          "observations"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "required_periods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "observed_periods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "missing_periods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "conflicting_periods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "aligned_observations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "period": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "source_ref": {
+                  "type": "object",
+                  "properties": {
+                    "result_id": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "result_id",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "period",
+                "value",
+                "unit",
+                "source_ref"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "matched_count": {
+            "type": "integer"
+          },
+          "expected_count": {
+            "type": "integer"
+          },
+          "proof_scope": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "complete",
+          "required_periods",
+          "observed_periods",
+          "missing_periods",
+          "conflicting_periods",
+          "aligned_observations",
+          "matched_count",
+          "expected_count",
+          "proof_scope",
+          "note"
+        ],
+        "additionalProperties": false
+      },
+      "source": "\"\"\"Deterministic completeness check for an *explicitly specified* observation series.\n\nThis Program does not discover observations and cannot assert that the user's\nrequested period list matches the source question. Evidence references are\npreserved for downstream use, not independently certified here.\n\"\"\"\nfrom decimal import Decimal, InvalidOperation\n\n\ndef run(ctx, inputs):\n    try:\n        required = inputs['required_periods']\n        observations = inputs['observations']\n        if not isinstance(required, list) or not required or len(required) > 240:\n            raise ValueError('required_periods must contain 1..240 explicit period strings')\n        if any(not isinstance(p, str) or not p.strip() for p in required) or len(set(required)) != len(required):\n            raise ValueError('required_periods must be distinct and nonblank')\n        if not isinstance(observations, list) or len(observations) > 500:\n            raise ValueError('observations must be a bounded list')\n        groups = {}\n        for obs in observations:\n            if not isinstance(obs, dict) or not {'period','value','unit','source_ref'} <= obs.keys():\n                raise ValueError('each observation needs period, value, unit and source_ref')\n            p, unit = obs['period'], obs['unit']\n            if p not in required or not isinstance(unit, str) or not unit.strip():\n                raise ValueError('observation period is not requested or unit is missing')\n            v = Decimal(str(obs['value']).replace(',',''))\n            if not v.is_finite():\n                raise ValueError('observation is nonfinite')\n            ref = obs['source_ref']\n            if not isinstance(ref, dict) or not isinstance(ref.get('result_id'), str) or not isinstance(ref.get('path'), list):\n                raise ValueError('source_ref must reference a real previously obtained result')\n            groups.setdefault(p, []).append({'period': p, 'value': str(v), 'unit': unit, 'source_ref': ref})\n        aligned, missing, conflicts = [], [], []\n        for p in required:\n            rows = groups.get(p, [])\n            if not rows:\n                missing.append(p);continue\n            signatures = {(r['value'], r['unit']) for r in rows}\n            if len(signatures) != 1:\n                conflicts.append(p);continue\n            aligned.append(rows[0])\n        units = {r['unit'] for r in aligned}\n        if len(units) > 1:\n            conflicts.extend(p for p in required if p in groups and p not in conflicts)\n        conflicts = list(dict.fromkeys(conflicts))\n        complete = not missing and not conflicts and len(aligned) == len(required)\n        return {'status':'ok','outputs':{\n            'complete':complete,'required_periods':required,'observed_periods':[p for p in required if p in groups],\n            'missing_periods':missing,'conflicting_periods':conflicts,\n            'aligned_observations':aligned if not conflicts else [],\n            'matched_count':len(aligned),'expected_count':len(required),\n            'proof_scope':'explicit_period_bookkeeping_only',\n            'note':'No source text was read here. Period semantics, quoted values, and referenced files must be checked in the actual task.'}}\n    except (KeyError,ValueError,TypeError,InvalidOperation) as exc:\n        return {'status':'needs_input','outputs':{},'detail':str(exc)}\n",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "method_version": "office.humanstrong.programmatic.v2.20261020",
+      "title": "Explicit period completeness ledger without missing-value guesses",
+      "entry_constraints": {
+        "selector": "period_ledger",
+        "description": "Explicit period completeness ledger without missing-value guesses",
+        "proof_scope": "local_only"
+      },
+      "id": "program_a6bf157bfb964f4ef70038a8e07a25619488afc9c75d089f26a955ffaeef2710"
+    },
+    {
+      "source_file": "../office_humanstrong_v2/programs/treasury_transform.py",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "state": "candidate",
+      "result_role": "intermediate",
+      "allowed_tools": [],
+      "input_schema": {
+        "type": "object",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "unit_scale"
+              },
+              "value": {
+                "type": [
+                  "string",
+                  "number"
+                ]
+              },
+              "source_unit": {
+                "enum": [
+                  "dollars",
+                  "thousands_of_dollars",
+                  "millions_of_dollars",
+                  "billions_of_dollars"
+                ]
+              },
+              "target_unit": {
+                "enum": [
+                  "dollars",
+                  "thousands_of_dollars",
+                  "millions_of_dollars",
+                  "billions_of_dollars"
+                ]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              }
+            },
+            "required": [
+              "operation",
+              "value",
+              "source_unit",
+              "target_unit"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "price_32nds"
+              },
+              "quote": {
+                "type": "string",
+                "minLength": 1
+              },
+              "quote_basis": {
+                "const": "thirty_seconds"
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              }
+            },
+            "required": [
+              "operation",
+              "quote",
+              "quote_basis"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "box_cox"
+              },
+              "value": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "lambda": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              }
+            },
+            "required": [
+              "operation",
+              "value",
+              "lambda"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "currency_convert"
+              },
+              "amount": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "rate": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "rate_orientation": {
+                "enum": [
+                  "foreign_per_usd",
+                  "usd_per_foreign"
+                ]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              }
+            },
+            "required": [
+              "operation",
+              "amount",
+              "rate",
+              "rate_orientation"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "minLength": 1
+          },
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "formula": {
+            "type": "string",
+            "minLength": 1
+          },
+          "proof_scope": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "value",
+          "answer",
+          "unit",
+          "formula",
+          "proof_scope",
+          "note"
+        ],
+        "additionalProperties": false
+      },
+      "source": "\"\"\"Treasury-specific exact local transforms with explicit conventions.\n\nCannot identify a table, currency orientation, or task target by itself.\n\"\"\"\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\nimport re\n\nSCALES={'dollars':Decimal(1),'thousands_of_dollars':Decimal(1000),\n        'millions_of_dollars':Decimal(1000000),'billions_of_dollars':Decimal(1000000000)}\n\n\ndef run(ctx,inputs):\n    try:\n        op=inputs['operation']\n        with localcontext() as c:\n            c.prec=44\n            if op=='unit_scale':\n                source=inputs['source_unit'];target=inputs['target_unit']\n                if source not in SCALES or target not in SCALES:raise ValueError('unsupported unit direction')\n                x=Decimal(str(inputs['value']).replace(',',''));y=x*SCALES[source]/SCALES[target]\n                rule=f'{source}->{target}';unit=target\n            elif op=='price_32nds':\n                if inputs.get('quote_basis')!='thirty_seconds':raise ValueError('source table must state quote basis as 32nds')\n                raw=str(inputs['quote']).strip();m=re.fullmatch(r'(\\d{1,3})\\.(\\d{1,2})',raw)\n                if not m:raise ValueError('price quote must be an integer part and 0..31 32nd ticks')\n                whole,ticks=map(int,m.groups())\n                if not 0<=ticks<=31:raise ValueError('32nd ticks out of range')\n                y=Decimal(whole)+Decimal(ticks)/Decimal(32)\n                rule='integer + ticks/32';unit='price_points'\n            elif op=='box_cox':\n                x=Decimal(str(inputs['value']));lam=Decimal(str(inputs['lambda']))\n                if x<=0 or not x.is_finite() or not lam.is_finite():raise ValueError('Box-Cox requires x>0 and finite lambda')\n                y=x.ln() if lam==0 else ((lam*x.ln()).exp()-1)/lam\n                rule='ln(x)' if lam==0 else '(x^lambda-1)/lambda';unit='transformed'\n            elif op=='currency_convert':\n                amount=Decimal(str(inputs['amount']));rate=Decimal(str(inputs['rate']))\n                direction=inputs['rate_orientation']\n                if rate<=0 or not rate.is_finite() or not amount.is_finite():raise ValueError('valid positive exchange rate required')\n                if direction=='foreign_per_usd':y=amount/rate;unit='usd';rule='foreign_amount / foreign_per_usd'\n                elif direction=='usd_per_foreign':y=amount*rate;unit='usd';rule='foreign_amount * usd_per_foreign'\n                else:raise ValueError('exchange-rate orientation must be explicit')\n            else:raise ValueError('unsupported Treasury transform')\n            if not y.is_finite():raise ValueError('nonfinite transformed output')\n            digits=inputs.get('decimals')\n            if digits is None:ans=format(y,'f').rstrip('0').rstrip('.') if '.' in format(y,'f') else format(y,'f')\n            else:\n                if type(digits) is not int or not 0<=digits<=18:raise ValueError('decimals must be 0..18')\n                ans=format(y.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP),f'.{digits}f')\n            if ans in ('-0',''):ans='0'\n            return {'status':'ok','outputs':{\n                'value':str(y),'answer':ans,'unit':unit,'formula':rule,\n                'proof_scope':'local_transform_only',\n                'note':'Input numbers and quote/currency convention must be grounded in a real source table.'}}\n    except (ValueError,TypeError,KeyError,ArithmeticError) as exc:\n        return {'status':'needs_input','outputs':{},'detail':str(exc)}\n",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "method_version": "office.humanstrong.programmatic.v2.20261020",
+      "title": "Exact Treasury unit, quote, Box-Cox and exchange transform",
+      "entry_constraints": {
+        "selector": "treasury_transform",
+        "description": "Exact Treasury unit, quote, Box-Cox and exchange transform",
+        "proof_scope": "local_only"
+      },
+      "id": "program_bd52f6290acc346460ec4cd7404eb95792d47459c47ff82f771c196f1c9e0fb6"
+    },
+    {
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "retrieval_program",
+        "description": "Scoped issue/text retrieval (local windows only)",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.programmatic.v3.20261020",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "title": "Polynomial OLS forecast or absolute prediction error; explicit period coverage and source operands",
+      "source_file": "../office_humanstrong_v3/programs/polynomial_forecast.py",
+      "source": "\"\"\"Polynomial OLS over explicit public observations; no implicit imputation.\n\nInputs are public, explicitly aligned observations. This computes a polynomial\nOLS forecast with an intercept; it cannot certify source/column semantics.\n\"\"\"\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef run(ctx, inputs):\n    try:\n        degree = inputs['degree']\n        if type(degree) is not int or not 1 <= degree <= 5:\n            raise ValueError('degree must be 1..5')\n        rows = inputs['observations']\n        expected = inputs['required_periods']\n        if not degree < len(expected) <= 240 or len(set(expected)) != len(expected):\n            raise ValueError('distinct required periods and at least degree+1 observations required')\n        if len(rows) != len(expected) or [r['period'] for r in rows] != expected:\n            raise ValueError('observations must cover every required period once, in specified order')\n        if any(r['unit'] != inputs['unit'] or not r.get('source_ref') for r in rows):\n            raise ValueError('consistent units and source references required')\n        operation = inputs['operation']\n        if operation not in ('predict', 'absolute_error'):\n            raise ValueError('choose predict or absolute_error')\n        actual = inputs.get('actual')\n        if operation == 'absolute_error' and actual is None:\n            raise ValueError('absolute_error requires an independently acquired actual value')\n        if actual is not None and (actual['unit'] != inputs['unit'] or not actual.get('source_ref')):\n            raise ValueError('actual value needs matching units and a source reference')\n        digits = inputs['decimals']\n        if type(digits) is not int or not 0 <= digits <= 18:\n            raise ValueError('decimals must be 0..18')\n        with localcontext() as context:\n            context.prec = 60\n            x = [Decimal(str(r['x'])) for r in rows]\n            y = [Decimal(str(r['value'])) for r in rows]\n            target = Decimal(str(inputs['prediction_x']))\n            observed = Decimal(str(actual['value'])) if actual is not None else None\n            if not all(v.is_finite() for v in x+y+[target]+([] if observed is None else [observed])):\n                raise ValueError('finite numeric values required')\n            if len(set(x)) < degree+1:\n                raise ValueError('rank deficient design')\n            center = sum(x)/len(x)\n            scale = max(abs(v-center) for v in x)\n            z = [(v-center)/scale for v in x]\n            design = [[Decimal(1)]+[v**j for j in range(1, degree+1)] for v in z]\n            width = degree+1\n            matrix = [[sum(r[i]*r[j] for r in design) for j in range(width)]\n                      +[sum(r[i]*v for r, v in zip(design, y))] for i in range(width)]\n            for i in range(width):\n                pivot = max(range(i, width), key=lambda j: abs(matrix[j][i]))\n                matrix[i], matrix[pivot] = matrix[pivot], matrix[i]\n                divisor = matrix[i][i]\n                if divisor == 0:\n                    raise ValueError('rank deficient design')\n                matrix[i] = [v/divisor for v in matrix[i]]\n                for j in range(width):\n                    if j != i:\n                        factor = matrix[j][i]\n                        matrix[j] = [a-factor*b for a, b in zip(matrix[j], matrix[i])]\n            coefficients = [r[-1] for r in matrix]\n            target_z = (target-center)/scale\n            prediction = coefficients[-1]\n            for c in reversed(coefficients[:-1]):\n                prediction = prediction*target_z+c\n            error = abs(prediction-observed) if observed is not None else None\n            value = prediction if operation == 'predict' else error\n            answer = format(value.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP), f'.{digits}f')\n            return {'status': 'ok', 'outputs': {\n                'count': len(rows), 'degree': degree, 'unit': inputs['unit'],\n                'center': str(center), 'scale': str(scale),\n                'coefficient_basis': 'ascending powers of (x-center)/scale, including intercept',\n                'coefficients': [str(v) for v in coefficients],\n                'prediction': str(prediction), 'actual': str(observed) if observed is not None else None,\n                'absolute_difference': str(error) if error is not None else None, 'answer': answer,\n                'formula': 'unweighted polynomial OLS with intercept; '+('prediction' if operation == 'predict' else 'abs(prediction-actual)'),\n                'proof_scope': 'calculation and explicit coverage only; source semantics not certified'}}\n    except (KeyError, ValueError, TypeError, ArithmeticError) as exc:\n        return {'status': 'needs_input', 'outputs': {}, 'detail': str(exc)}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "enum": [
+              "predict",
+              "absolute_error"
+            ]
+          },
+          "degree": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "required_periods": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 2,
+            "maxItems": 240,
+            "uniqueItems": true
+          },
+          "observations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "period": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "x": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "source_ref": {
+                  "type": "object",
+                  "properties": {
+                    "result_id": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "result_id",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "period",
+                "x",
+                "value",
+                "unit",
+                "source_ref"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 2,
+            "maxItems": 240
+          },
+          "prediction_x": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decimals": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18
+          },
+          "actual": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "unit": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source_ref": {
+                "type": "object",
+                "properties": {
+                  "result_id": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "string",
+                        "integer"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "result_id",
+                  "path"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "value",
+              "unit",
+              "source_ref"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "operation",
+          "degree",
+          "required_periods",
+          "observations",
+          "prediction_x",
+          "unit",
+          "decimals"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "unit": {
+            "type": "string"
+          },
+          "center": {
+            "type": "string"
+          },
+          "scale": {
+            "type": "string"
+          },
+          "coefficient_basis": {
+            "type": "string"
+          },
+          "prediction": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          },
+          "formula": {
+            "type": "string"
+          },
+          "proof_scope": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "degree": {
+            "type": "integer"
+          },
+          "coefficients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "actual": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "absolute_difference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "unit",
+          "center",
+          "scale",
+          "coefficient_basis",
+          "prediction",
+          "answer",
+          "formula",
+          "proof_scope",
+          "count",
+          "degree",
+          "coefficients",
+          "actual",
+          "absolute_difference"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "id": "program_a82b9d873d367a665277d9530d7580bab1ebcf297abef550979bcd276db86b0b"
+    },
+    {
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "final_answer",
+      "entry_constraints": {
+        "selector": "retrieval_program",
+        "description": "Scoped issue/text retrieval (local windows only)",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "title": "table_calculate: source rows → exact named arithmetic → explicit scalar format → final submission",
+      "source_file": "programs/table_calculate.py",
+      "source": "METRIC_RULES = {'difference': {'required': ['operation', 'from_value', 'to_value', 'absolute', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'from_value', 'to_value', 'absolute']}, 'ratio': {'required': ['operation', 'numerator', 'denominator', 'output_percent', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'numerator', 'denominator']}, 'percent_change': {'required': ['operation', 'base_value', 'new_value', 'output_percent', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'base_value', 'new_value', 'periods']}, 'log_return': {'required': ['operation', 'base_value', 'new_value', 'output_percent', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'base_value', 'new_value', 'periods']}, 'cagr': {'required': ['operation', 'base_value', 'new_value', 'output_percent', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'base_value', 'new_value', 'periods']}, 'annual_log_growth': {'required': ['operation', 'base_value', 'new_value', 'output_percent', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'base_value', 'new_value', 'periods']}, 'sum': {'required': ['operation', 'values', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values', 'other_values']}, 'mean': {'required': ['operation', 'values', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values', 'other_values']}, 'median': {'required': ['operation', 'values', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values', 'other_values']}, 'std_population': {'required': ['operation', 'values', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values', 'other_values']}, 'std_sample': {'required': ['operation', 'values', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values', 'other_values']}, 'variance_population': {'required': ['operation', 'values', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values', 'other_values']}, 'variance_sample': {'required': ['operation', 'values', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values', 'other_values']}, 'gini_population': {'required': ['operation', 'values', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values', 'other_values']}, 'gini_sample_adjusted': {'required': ['operation', 'values', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values', 'other_values']}, 'correlation': {'required': ['operation', 'values', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values', 'other_values']}, 'ols_slope': {'required': ['operation', 'values', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values', 'other_values']}, 'ols_intercept': {'required': ['operation', 'values', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values', 'other_values']}, 'geometric_growth': {'required': ['operation', 'values', 'unit'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values', 'other_values']}, 'symmetric_difference': {'required': ['operation', 'values', 'unit', 'output_percent'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values']}, 'share_difference': {'required': ['operation', 'values', 'unit', 'output_percent', 'absolute'], 'allowed': ['unit', 'decimals', 'operand_refs', 'output_percent', 'operation', 'values', 'absolute']}}\n\n\"\"\"Literal table selection: reject conflicting headers instead of guessing columns.\"\"\"\nimport re\nfrom decimal import Decimal\n\n\nclass SelectionError(ValueError):\n    def __init__(self, code, detail, **context):\n        super().__init__(detail)\n        self.recovery = {'code': code, **context}\n\n\ndef norm(value):\n    return ' '.join(value.casefold().split())\n\n\ndef label_key(value):\n    # A terminal punctuation mark is presentation, not a different month/category.\n    # Footnotes, words, years and internal punctuation are not stripped.\n    return norm(value).rstrip('.')\n\n\ndef cells(line):\n    value = line.strip()\n    if '|' in value:\n        if value.startswith('|'): value = value[1:]\n        if value.endswith('|'): value = value[:-1]\n        return [cell.strip() for cell in value.split('|')]\n    return [cell.strip() for cell in re.split(r'\\t+| {2,}', value)]\n\n\ndef number(value):\n    value = re.sub(r'(?<=\\d)[*†‡]+$', '', value.strip()).replace(',', '')\n    if not re.fullmatch(r'\\(?[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)\\)?', value):\n        raise ValueError('not a complete numeric cell')\n    if value.startswith('('):\n        if not value.endswith(')'): raise ValueError('unbalanced numeric parentheses')\n        value = '-'+value[1:-1]\n    elif value.endswith(')'): raise ValueError('unbalanced numeric parentheses')\n    return str(Decimal(value))\n\n\ndef extract_table(ctx, inputs):\n    try:\n        text, wanted, column = inputs['text'], inputs['rows'], inputs['column']\n        if not isinstance(text, str) or not text.strip() or not wanted:\n            raise SelectionError('missing_table', 'Supply a complete table window, including headers and units.')\n        if len({label_key(row) for row in wanted}) != len(wanted):\n            raise SelectionError('duplicate_requested_row', 'Requested rows must be distinct.')\n        raw = text.splitlines(keepends=True)\n        parsed = [cells(line) for line in raw]\n        offsets, cursor = [], 0\n        for line in raw: offsets.append(cursor); cursor += len(line)\n        separator = lambda row: len(row) > 1 and all(re.fullmatch(r':?-{2,}:?', c) for c in row)\n        def numeric_row(row):\n            for value in row[1:]:\n                try: number(value); return True\n                except ValueError: pass\n            return False\n        def data_row(index):\n            # Markdown's delimiter identifies a header even when its labels are years.\n            row = parsed[index]\n            if index+1 < len(parsed) and separator(parsed[index+1]): return False\n            # Empty leading cells identify continuation headers, including year labels.\n            if not row[0] and any(row[1:]): return False\n            # Section labels and missing-value data rows end a header block too.\n            missing = {'', '-', '–', '—', '...', '…', 'n/a', 'na'}\n            return numeric_row(row) or (\n                bool(row[0]) and all(norm(value) in missing for value in row[1:]))\n        candidates = []\n        for index, row in enumerate(parsed):\n            if len(row) < 2 or data_row(index) or separator(row): continue\n            for col, value in enumerate(row[1:], 1):\n                if norm(value) == norm(column): candidates.append((index, col))\n        blocks = {}\n        for index, col in candidates:\n            lo, hi = index, index+1\n            while lo and len(parsed[lo-1]) > 1 and not data_row(lo-1): lo -= 1\n            while hi < len(raw) and len(parsed[hi]) > 1 and not data_row(hi): hi += 1\n            if inputs.get('header_hint') and norm(inputs['header_hint']) not in norm(' '.join(raw[max(0, lo-6):hi])):\n                continue\n            blocks[(lo, hi, col)] = None\n        if len(blocks) > 1 and inputs.get('header_path'):\n            selected = {}\n            for lo, hi, col in blocks:\n                path = []\n                for row in parsed[lo:hi]:\n                    if not separator(row) and col < len(row) and row[col] and (not path or norm(row[col]) != norm(path[-1])):\n                        path.append(row[col])\n                if [norm(p) for p in path] == [norm(p) for p in inputs['header_path']]:\n                    selected[(lo, hi, col)] = None\n            blocks = selected\n        if len(blocks) != 1:\n            raise SelectionError('ambiguous_header', 'Supply one table with a unique requested column and header_hint.',\n                                 column=column, matches=len(blocks))\n        (lo, hi, col), = blocks\n        headers = [row for row in parsed[lo:hi] if not separator(row)]\n        if any(len(row) != len(headers[0]) for row in headers):\n            raise SelectionError('header_width_conflict', 'Header widths differ; obtain an unambiguous source.',\n                                 headers=raw[lo:hi])\n        path = []\n        for row in headers:\n            if row[col] and (not path or norm(row[col]) != norm(path[-1])): path.append(row[col])\n        # A parent heading must never be mistaken for a different child column.\n        if not path or norm(path[-1]) != norm(column):\n            raise SelectionError('header_conflict', 'Requested heading conflicts with the leaf column; do not guess an index.',\n                                 column=column, column_path=path, headers=raw[lo:hi])\n        supplied_path = inputs.get('header_path')\n        if len(path) > 1 and [norm(p) for p in (supplied_path or [])] != [norm(p) for p in path]:\n            raise SelectionError('header_path_required', 'Bind the full observed parent-to-leaf header_path.',\n                                 column_path=path, headers=raw[lo:hi])\n        unit = inputs['unit']\n        if not unit or norm(unit) not in norm(text):\n            raise SelectionError('unit_missing', 'Quote the source unit literally; display units are a separate field.',\n                                 unit=unit)\n        scope = inputs.get('scope_quote')\n        if scope and scope not in ''.join(raw[max(0, lo-6):hi]):\n            raise SelectionError('scope_missing', 'scope_quote must occur in this table title/header.')\n        end = hi\n        while end < len(raw) and len(parsed[end]) > 1 and not separator(parsed[end]): end += 1\n        matches = []\n        for label in wanted:\n            found = []\n            for index in range(hi, end):\n                row = parsed[index]\n                if not row or label_key(row[0]) != label_key(label): continue\n                if len(row) != len(headers[0]):\n                    raise SelectionError('row_width_conflict', 'Data row width differs from its header.', row=label)\n                try: value = number(row[col])\n                except ValueError:\n                    raise SelectionError('nonnumeric_cell', 'Requested cell is not a complete number.', row=label, column=column)\n                found.append({'row': label, 'matched_row': row[0], 'column': column, 'value': value, 'unit': unit,\n                    'source_line': index+1, 'start': offsets[index], 'end': offsets[index]+len(raw[index].rstrip('\\r\\n')),\n                    'quote': raw[index].rstrip('\\r\\n'), 'header': ''.join(raw[lo:hi]).rstrip(),\n                    'column_path': path, 'scope_quote': scope})\n            if len(found) != 1:\n                raise SelectionError('row_missing_or_ambiguous', 'Select one literal row; never substitute a broader category.',\n                    row=label, matches=len(found), available_rows=[row[0] for row in parsed[hi:end]][:30])\n            matches.extend(found)\n        return {'status': 'ok', 'outputs': {'cells': matches, 'values': [x['value'] for x in matches],\n            'header': ''.join(raw[lo:hi]).rstrip(), 'unit': unit, 'requested_rows': wanted,\n            'table_header_bound': True, 'target_periods_complete': True,\n            'scope': 'Literal source selector only; caller must match question category and period.',\n            'proof_scope': 'literal columns/rows only; caller binds question scope and convention'}}\n    except (KeyError, ValueError, TypeError, ArithmeticError) as exc:\n        return {'status': 'needs_input', 'outputs': {}, 'detail': str(exc),\n                'recovery': getattr(exc, 'recovery', {'code': 'invalid_selector'})}\n\n\n\"\"\"Named formulas with explicit conventions; computation, not operand provenance.\"\"\"\nimport math\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef calculate_metrics(ctx,inputs):\n    try:\n        op=inputs['operation'];direction='as_supplied';formula=op\n        named={'difference','ratio','percent_change','log_return','cagr','annual_log_growth'}\n        if 'output_scale' in inputs:raise ValueError('output_scale is unsupported; specify output_percent explicitly')\n        if op in named:\n            if 'values' in inputs:raise ValueError('This operation requires named operands, not positional values')\n            if op=='difference':\n                raw=[inputs['from_value'],inputs['to_value']]\n                if type(inputs['absolute']) is not bool:raise ValueError('absolute must be explicit boolean')\n                formula='abs(to_value-from_value)' if inputs['absolute'] else 'to_value-from_value'\n                direction='absolute' if inputs['absolute'] else 'to_minus_from'\n            elif op=='ratio':\n                raw=[inputs['denominator'],inputs['numerator']];formula='numerator/denominator';direction='numerator_over_denominator'\n            else:\n                raw=[inputs['base_value'],inputs['new_value']];direction='base_to_new'\n                formula={'percent_change':'(new_value-base_value)/base_value','log_return':'ln(new_value/base_value)',\n                         'cagr':'exp(ln(new_value/base_value)/periods)-1',\n                         'annual_log_growth':'ln(new_value/base_value)/periods'}[op]\n        else:raw=inputs['values']\n        if not isinstance(raw,list) or not raw or len(raw)>5000:raise ValueError('1..5000 values required')\n        if any(type(v) not in (str,int,float) for v in raw):raise ValueError('numeric strings/numbers required')\n        with localcontext() as context:\n            context.prec=50\n            x=[Decimal(str(v)) for v in raw]\n            if any(not v.is_finite() for v in x):raise ValueError('nonfinite operand')\n            n=Decimal(len(x));mean=sum(x)/n;convention=op\n            if op=='sum':v=sum(x)\n            elif op=='mean':v=mean\n            elif op=='symmetric_difference':\n                if len(x)!=2:raise ValueError('values must be [first,second]')\n                v=abs(x[1]-x[0])/((abs(x[0])+abs(x[1]))/2)\n                formula='abs(second-first)/((abs(first)+abs(second))/2)';direction='absolute_symmetric'\n            elif op=='share_difference':\n                if len(x)!=4:raise ValueError('values must be [first_part,first_total,second_part,second_total]')\n                if type(inputs.get('absolute')) is not bool:raise ValueError('absolute must be explicit boolean')\n                v=x[2]/x[3]-x[0]/x[1]\n                formula='second_part/second_total-first_part/first_total';direction='second_share_minus_first_share'\n                if inputs['absolute']:v=abs(v);formula='abs('+formula+')';direction='absolute_share_difference'\n            elif op=='median':\n                a=sorted(x);mid=len(a)//2;v=a[mid] if len(a)%2 else (a[mid-1]+a[mid])/2\n            elif op in {'difference','ratio','percent_change','log_return','cagr','annual_log_growth'}:\n                if len(x)!=2:raise ValueError('exactly two values in [start,end] order required')\n                a,b=x\n                if op=='difference':v=abs(b-a) if inputs['absolute'] else b-a\n                elif op=='ratio':v=b/a\n                elif op=='percent_change':v=(b-a)/a\n                else:\n                    if a<=0 or b<=0:raise ValueError('growth operands must be positive')\n                    ratio=b/a\n                    if op=='log_return':v=ratio.ln()\n                    else:\n                        periods=Decimal(str(inputs.get('periods','0')))\n                        if periods<=0:raise ValueError('positive elapsed interval count required, not observation count')\n                        v=ratio.ln()/periods if op=='annual_log_growth' else (ratio.ln()/periods).exp()-1\n            elif op in {'std_population','std_sample','variance_population','variance_sample'}:\n                denominator=n-(1 if op.endswith('sample') else 0)\n                if denominator<=0:raise ValueError('sample requires at least two observations')\n                v=sum((a-mean)**2 for a in x)/denominator\n                if op.startswith('std_'):v=v.sqrt()\n            elif op in {'gini_population','gini_sample_adjusted'}:\n                if min(x)<0 or sum(x)<=0:raise ValueError('Gini requires nonnegative values and positive sum')\n                a=sorted(x);v=sum(Decimal(2*i-len(a)-1)*z for i,z in enumerate(a,1))/(n*sum(a))\n                if op=='gini_sample_adjusted':\n                    if n<=1:raise ValueError('sample correction requires n>1')\n                    v=v*n/(n-1)\n            elif op in {'correlation','ols_slope','ols_intercept'}:\n                raw_y=inputs.get('other_values',[])\n                if len(raw_y)!=len(x) or len(x)<2:raise ValueError('paired x/y arrays of equal length required')\n                y=[Decimal(str(z)) for z in raw_y]\n                if any(not z.is_finite() for z in y):raise ValueError('nonfinite y')\n                my=sum(y)/n;sxx=sum((a-mean)**2 for a in x);sxy=sum((a-mean)*(b-my) for a,b in zip(x,y))\n                if sxx==0:raise ValueError('zero x variance')\n                slope=sxy/sxx\n                if op=='ols_slope':v=slope\n                elif op=='ols_intercept':v=my-slope*mean\n                else:\n                    syy=sum((b-my)**2 for b in y)\n                    if syy==0:raise ValueError('zero y variance')\n                    v=sxy/(sxx*syy).sqrt()\n            elif op=='geometric_growth':\n                if any(1+a<=0 for a in x):raise ValueError('growth factors must be positive')\n                v=(sum((1+a).ln() for a in x)/n).exp()-1\n            else:raise ValueError('unsupported named operation')\n            percent=inputs.get('output_percent',False)\n            if type(percent) is not bool:raise ValueError('output_percent must be boolean')\n            if percent:\n                if op not in {'ratio','percent_change','cagr','geometric_growth','symmetric_difference','share_difference'}:raise ValueError('percent output is not supported for this operation')\n                v*=100;formula='100*('+formula+')'\n            digits=inputs.get('decimals')\n            if digits is not None:\n                if type(digits) is not int or not 0<=digits<=18:raise ValueError('decimals must be 0..18')\n                answer=format(v.quantize(Decimal(1).scaleb(-digits),rounding=ROUND_HALF_UP),'.'+str(digits)+'f')\n            else:answer=format(v,'f').rstrip('0').rstrip('.') if '.' in format(v,'f') else format(v,'f')\n            if answer in ('-0',''):answer='0'\n            return {'status':'ok','outputs':{'value':str(v),'answer':answer,'formula':formula,'direction':direction,\n                'operand_refs':inputs.get('operand_refs',[]),'periods':str(inputs.get('periods','not_applicable')),\n                'unit':inputs['unit'],'output_percent':percent,'proof_scope':'local_computation_only',\n                'convention':convention,'count':len(x)}}\n    except (KeyError,ValueError,TypeError,ArithmeticError) as e:return {'status':'needs_input','outputs':{},'detail':str(e)}\n\n\n\"\"\"Polynomial OLS over explicit public observations; no implicit imputation.\n\nInputs are public, explicitly aligned observations. This computes a polynomial\nOLS forecast with an intercept; it cannot certify source/column semantics.\n\"\"\"\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef calculate_polynomial(ctx, inputs):\n    try:\n        degree = inputs['degree']\n        if type(degree) is not int or not 1 <= degree <= 5:\n            raise ValueError('degree must be 1..5')\n        rows = inputs['observations']\n        expected = inputs['required_periods']\n        if not degree < len(expected) <= 240 or len(set(expected)) != len(expected):\n            raise ValueError('distinct required periods and at least degree+1 observations required')\n        if len(rows) != len(expected) or [r['period'] for r in rows] != expected:\n            raise ValueError('observations must cover every required period once, in specified order')\n        if any(r['unit'] != inputs['unit'] or not r.get('source_ref') for r in rows):\n            raise ValueError('consistent units and source references required')\n        operation = inputs['operation']\n        if operation not in ('predict', 'absolute_error'):\n            raise ValueError('choose predict or absolute_error')\n        actual = inputs.get('actual')\n        if operation == 'absolute_error' and actual is None:\n            raise ValueError('absolute_error requires an independently acquired actual value')\n        if actual is not None and (actual['unit'] != inputs['unit'] or not actual.get('source_ref')):\n            raise ValueError('actual value needs matching units and a source reference')\n        digits = inputs['decimals']\n        if type(digits) is not int or not 0 <= digits <= 18:\n            raise ValueError('decimals must be 0..18')\n        with localcontext() as context:\n            context.prec = 60\n            x = [Decimal(str(r['x'])) for r in rows]\n            y = [Decimal(str(r['value'])) for r in rows]\n            target = Decimal(str(inputs['prediction_x']))\n            observed = Decimal(str(actual['value'])) if actual is not None else None\n            if not all(v.is_finite() for v in x+y+[target]+([] if observed is None else [observed])):\n                raise ValueError('finite numeric values required')\n            if len(set(x)) < degree+1:\n                raise ValueError('rank deficient design')\n            center = sum(x)/len(x)\n            scale = max(abs(v-center) for v in x)\n            z = [(v-center)/scale for v in x]\n            design = [[Decimal(1)]+[v**j for j in range(1, degree+1)] for v in z]\n            width = degree+1\n            matrix = [[sum(r[i]*r[j] for r in design) for j in range(width)]\n                      +[sum(r[i]*v for r, v in zip(design, y))] for i in range(width)]\n            for i in range(width):\n                pivot = max(range(i, width), key=lambda j: abs(matrix[j][i]))\n                matrix[i], matrix[pivot] = matrix[pivot], matrix[i]\n                divisor = matrix[i][i]\n                if divisor == 0:\n                    raise ValueError('rank deficient design')\n                matrix[i] = [v/divisor for v in matrix[i]]\n                for j in range(width):\n                    if j != i:\n                        factor = matrix[j][i]\n                        matrix[j] = [a-factor*b for a, b in zip(matrix[j], matrix[i])]\n            coefficients = [r[-1] for r in matrix]\n            target_z = (target-center)/scale\n            prediction = coefficients[-1]\n            for c in reversed(coefficients[:-1]):\n                prediction = prediction*target_z+c\n            error = abs(prediction-observed) if observed is not None else None\n            value = prediction if operation == 'predict' else error\n            answer = format(value.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP), f'.{digits}f')\n            return {'status': 'ok', 'outputs': {\n                'count': len(rows), 'degree': degree, 'unit': inputs['unit'],\n                'center': str(center), 'scale': str(scale),\n                'coefficient_basis': 'ascending powers of (x-center)/scale, including intercept',\n                'coefficients': [str(v) for v in coefficients],\n                'prediction': str(prediction), 'actual': str(observed) if observed is not None else None,\n                'absolute_difference': str(error) if error is not None else None, 'answer': answer,\n                'formula': 'unweighted polynomial OLS with intercept; '+('prediction' if operation == 'predict' else 'abs(prediction-actual)'),\n                'proof_scope': 'calculation and explicit coverage only; source semantics not certified'}}\n    except (KeyError, ValueError, TypeError, ArithmeticError) as exc:\n        return {'status': 'needs_input', 'outputs': {}, 'detail': str(exc)}\n\n\n\"\"\"Render an explicit answer contract; never infer formatting from gold or task ID.\"\"\"\nimport re\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef format_answer(value, contract):\n    allowed = {'style', 'decimals', 'scale', 'suffix'}\n    if set(contract)-allowed or not {'style', 'decimals', 'scale'} <= set(contract):\n        raise ValueError('format requires style, decimals, scale; suffix only for unit_suffix')\n    style, digits, scale = contract['style'], contract['decimals'], contract['scale']\n    if style not in ('number', 'percent', 'unit_suffix') or type(digits) is not int or not 0 <= digits <= 18:\n        raise ValueError('style number|percent|unit_suffix and decimals 0..18 required')\n    if scale not in ('as_is', 'fraction_to_percent'):\n        raise ValueError('Explicit scale as_is|fraction_to_percent required')\n    if style != 'unit_suffix' and 'suffix' in contract:\n        raise ValueError('Only unit_suffix accepts a suffix; number never appends units')\n    suffix = contract.get('suffix', '')\n    if style == 'unit_suffix' and (not isinstance(suffix, str) or not suffix.strip() or\n            len(suffix) > 60 or '\\n' in suffix or '%' in suffix):\n        raise ValueError('unit_suffix requires a short literal unit; use percent for %')\n    if type(value) not in (str, int, float):\n        raise ValueError('A numeric result leaf is required; do not pass prose/reason or an entire object')\n    if isinstance(value, str) and not re.fullmatch(r'[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?', value.strip()):\n        raise ValueError('Result must be numeric without units, commas or explanation')\n    with localcontext() as context:\n        context.prec = 60\n        number = Decimal(str(value))\n        if not number.is_finite(): raise ValueError('nonfinite result')\n        if scale == 'fraction_to_percent': number *= 100\n        number = number.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)\n        if number == 0: number = abs(number)\n        answer = format(number, f'.{digits}f')\n    if style == 'percent': answer += '%'\n    if style == 'unit_suffix': answer += ' '+suffix.strip()\n    return answer\n\n\ndef read_numeric(ctx, ref):\n    if ctx.remaining_calls() <= 0: raise ValueError('No tool budget left to read computed result')\n    result = ctx.call('read_result', {**ref, 'offset': 0, 'limit': 256})\n    if not result.get('accepted') or result.get('next_offset') is not None:\n        raise ValueError('Computed result is unavailable or incomplete; select a numeric leaf')\n    return result['data']\n\n\n\"\"\"Explicit statistical conventions, with unrounded operands and intermediates.\"\"\"\n\n\ndef calculate_statistics(ctx, inputs):\n    try:\n        op = inputs['operation']\n        values = [Decimal(str(value)) for value in inputs['values']]\n        if not values or any(not value.is_finite() for value in values):\n            raise ValueError('Finite nonempty series required')\n        transform = inputs['transform']\n        if transform not in ('none', 'first_difference'): raise ValueError('Unknown series transform')\n        if transform == 'first_difference':\n            values = [b-a for a, b in zip(values, values[1:])]\n        n = len(values)\n        with localcontext() as context:\n            context.prec = 50\n            if not n: raise ValueError('No observations after transform')\n            mean = sum(values)/n\n            if op == 'mean_spread':\n                if transform != 'none': raise ValueError('mean_spread expects two original aligned series')\n                other = [Decimal(str(value)) for value in inputs['other_values']]\n                if len(other) != n or any(not value.is_finite() for value in other):\n                    raise ValueError('Two finite period-aligned series of equal length required')\n                value = sum(a-b for a, b in zip(values, other))/n\n                formula = 'mean(values - other_values)'\n            else:\n                ddof = inputs['ddof']\n                if type(ddof) is not int or ddof not in (0, 1) or n <= ddof:\n                    raise ValueError('Explicit ddof=0 population or ddof=1 sample and enough observations required')\n                std = (sum((v-mean)**2 for v in values)/(n-ddof)).sqrt()\n                if op == 'coefficient_variation':\n                    if mean == 0: raise ValueError('CV requires nonzero mean')\n                    value = std/mean; formula = 'std(values, ddof)/mean(values)'\n                elif op == 'z_score':\n                    observed = Decimal(str(inputs['observation']))\n                    if not observed.is_finite() or std == 0: raise ValueError('Finite observation and nonzero std required')\n                    value = (observed-mean)/std; formula = '(observation-mean(values))/std(values, ddof)'\n                else: raise ValueError('Unknown statistic')\n            return {'status': 'ok', 'outputs': {'value': str(value), 'formula': formula, 'count': n,\n                'transform': transform, 'ddof': inputs.get('ddof'), 'unit': inputs['unit'],\n                'proof_scope': 'named arithmetic; caller selects statistic/convention and public observation'}}\n    except (KeyError, ValueError, TypeError, ArithmeticError) as exc:\n        return {'status': 'needs_input', 'outputs': {}, 'detail': str(exc)}\n\n\n\"\"\"Bound real table references to a named calculation and a final answer.\n\nUses safe literal extraction, named arithmetic and an explicit output contract.\n\"\"\"\n\n\ndef source_window(ctx, table):\n    ref = table['source_ref']\n    start = table.get('offset', 0)\n    length = table.get('length', 12000)\n    if type(start) is not int or start < 0 or type(length) is not int or not 1 <= length <= 24000:\n        raise ValueError('source window requires offset>=0 and length 1..24000')\n    # Read one preceding character to identify a partial first line.\n    cursor = max(0, start-1)\n    end = start+length\n    chunks = []\n    last = None\n    while cursor < end:\n        if ctx.remaining_calls() <= 0:\n            raise ValueError('tool budget exhausted before requested source window was read')\n        last = ctx.call('read_result', {**ref, 'offset': cursor, 'limit': min(3000, end-cursor)})\n        if not last.get('accepted'):\n            raise ValueError('source read refused: '+str(last.get('error')))\n        if not isinstance(last.get('data'), str) or last.get('unit') != 'unicode_codepoint_0_based':\n            raise ValueError('source_ref must identify acquired public text')\n        if cursor >= last.get('size', cursor+1):\n            raise SelectionError('offset_out_of_bounds', 'Use a window inside the acquired source, not a guessed document offset.',\n                                 requested_offset=start, source_size=last.get('size'), source_ref=ref)\n        if last['offset'] != cursor or last['end'] < cursor:\n            raise SelectionError('source_offset_conflict', 'Source read offsets do not match the request.', source_ref=ref)\n        chunks.append(last['data'])\n        if last['next_offset'] is None or last['end'] == cursor:\n            break\n        cursor = last['end']\n    text = ''.join(chunks)\n    base = max(0, start-1)\n    if start:\n        if not text:\n            raise ValueError('source window is empty')\n        previous, text = text[0], text[1:]\n        base = start\n        if previous != '\\n':\n            newline = text.find('\\n')\n            if newline < 0:\n                raise ValueError('no complete source line in requested window')\n            base += newline+1\n            text = text[newline+1:]\n    if last and last['next_offset'] is not None and not text.endswith('\\n'):\n        # A partial numeric row must not be parsed as a smaller complete value.\n        text = text[:text.rfind('\\n')+1] if '\\n' in text else ''\n    if not text.strip():\n        raise ValueError('no complete source lines in requested window')\n    return text, base\n\n\ndef run(ctx, inputs):\n    try:\n        if inputs.get('submit_answer') is not True:\n            raise ValueError('Choose this final-answer Program only for the complete requested calculation')\n        contract = inputs['format']\n        format_answer('0', contract)  # Reject invalid display contracts before any tool calls.\n        tables = inputs['tables']\n        if not 1 <= len(tables) <= 8:\n            raise ValueError('1..8 table selectors required')\n        groups, evidence, units, windows = {}, [], set(), {}\n        for table in tables:\n            key = table['key']\n            if key in groups:\n                raise ValueError('table keys must be distinct')\n            ref = table['source_ref']\n            window_key = (ref['result_id'], tuple(ref['path']), table.get('offset', 0), table.get('length', 12000))\n            if window_key not in windows:\n                windows[window_key] = source_window(ctx, table)\n            text, base = windows[window_key]\n            extracted = extract_table(ctx, {'text': text, 'rows': table['rows'],\n                'column': table['column'], 'unit': table['unit'],\n                'header_hint': table.get('header_hint', ''),\n                'header_path': table.get('header_path'), 'scope_quote': table.get('scope_quote')})\n            if extracted['status'] != 'ok':\n                recovery = extracted.get('recovery', {})\n                raise SelectionError(recovery.get('code', 'invalid_selector'),\n                    key+': '+extracted.get('detail', 'ambiguous table'),\n                    table_key=key, selector_feedback=recovery)\n            cells = extracted['outputs']['cells']\n            for cell in cells:\n                cell.update(source_ref=table['source_ref'], start=base+cell['start'],\n                            end=base+cell['end'], table_key=key)\n            groups[key] = cells\n            evidence.extend(cells)\n            units.add(table['unit'])\n        if len(units) != 1:\n            raise ValueError('mixed source units: normalize explicitly before using this Program')\n        bindings = inputs['bindings']\n        if not bindings or set(k for names in bindings.values() for k in names) != set(groups):\n            raise ValueError('bindings must use every extracted table key and no unknown keys')\n        selected = {}\n        for field, names in bindings.items():\n            if not names or len(set(names)) != len(names):\n                raise ValueError('each binding needs distinct ordered table keys')\n            selected[field] = [cell for key in names for cell in groups[key]]\n        options = dict(inputs['calculation'])\n        method = options.pop('method')\n        source_unit = next(iter(units))\n        # Actual source unit and display suffix are independent. No conversion.\n        options['unit'] = source_unit\n        if method == 'statistics':\n            op = options['operation']\n            expected = {'operation', 'transform', 'unit'} | (\n                {'ddof', 'observation'} if op == 'z_score' else\n                {'ddof'} if op == 'coefficient_variation' else set())\n            fields = {'values', 'other_values'} if op == 'mean_spread' else {'values'}\n            if set(options) != expected or set(selected) != fields:\n                raise ValueError('Statistics requires exact operands, transform and explicit ddof/observation where applicable')\n            if op == 'mean_spread':\n                labels = [[label_key(row['matched_row']) for row in selected[field]] for field in ('values', 'other_values')]\n                if labels[0] != labels[1]: raise ValueError('mean_spread rows must have identical period order')\n            else:\n                options['unit'] = 'dimensionless'\n            options.update({field: [row['value'] for row in rows] for field, rows in selected.items()})\n            computed = calculate_statistics(ctx, options)\n        elif method == 'series_metrics':\n            options['decimals'] = None\n            if set(options) - {'operation','decimals','unit','absolute','output_percent','periods'}:\n                raise ValueError('metric calculation contains polynomial-only options')\n            op = options['operation']\n            absolute_relative = op == 'absolute_relative_change'\n            if absolute_relative:\n                options['operation'] = 'percent_change'\n            if op in {'variance_population','variance_sample'}: options['unit'] = source_unit+'^2'\n            elif op in {'ratio','percent_change','absolute_relative_change','log_return','cagr',\n                        'annual_log_growth','geometric_growth','symmetric_difference','share_difference',\n                        'correlation','ols_slope','gini_population','gini_sample_adjusted'}:\n                options['unit'] = ('percentage points' if op == 'share_difference' else 'percent') if options.get('output_percent') else 'dimensionless'\n            scalar = {'from_value','to_value','base_value','new_value','numerator','denominator'}\n            if set(selected) - scalar - {'values','other_values'}:\n                raise ValueError('unknown metric operand binding')\n            for field, rows in selected.items():\n                if field in scalar and len(rows) != 1:\n                    raise ValueError(field+' requires exactly one extracted cell')\n                options[field] = rows[0]['value'] if field in scalar else [r['value'] for r in rows]\n            options['operand_refs'] = [r['source_ref'] for r in evidence]\n            rule = METRIC_RULES.get(options['operation'])\n            if not rule or set(options)-set(rule['allowed']) or set(rule['required'])-set(options):\n                raise ValueError('calculation fields do not match the exact named metric contract')\n            computed = calculate_metrics(ctx, options)\n            if absolute_relative and computed['status'] == 'ok':\n                result = computed['outputs']\n                with localcontext() as precision:\n                    precision.prec = 50\n                    value = abs(Decimal(result['value']))\n                    result.update(value=str(value), answer=str(value),\n                        formula='abs('+result['formula']+')',direction='absolute_base_relative',\n                        convention='absolute_relative_change')\n        elif method == 'polynomial_forecast':\n            options['decimals'] = 18\n            if set(options) - {'operation','degree','decimals','unit','first_x','x_step','prediction_x'}:\n                raise ValueError('polynomial calculation contains unsupported options')\n            if set(selected) - {'observations','actual'} or 'observations' not in selected:\n                raise ValueError('polynomial requires observations and optional actual bindings')\n            rows = selected['observations']\n            first = Decimal(str(options.pop('first_x', 0)))\n            step = Decimal(str(options.pop('x_step', 1)))\n            if not first.is_finite() or not step.is_finite() or step == 0:\n                raise ValueError('finite first_x and nonzero x_step required')\n            options['required_periods'] = [r['row'] for r in rows]\n            options['observations'] = [{'period': r['row'], 'x': str(first+i*step),\n                'value': r['value'], 'unit': source_unit, 'source_ref': r['source_ref']}\n                for i, r in enumerate(rows)]\n            if 'actual' in selected:\n                if len(selected['actual']) != 1:\n                    raise ValueError('actual binding requires exactly one observed target value')\n                r = selected['actual'][0]\n                options['actual'] = {'value': r['value'], 'unit': source_unit,\n                                     'source_ref': r['source_ref']}\n            computed = calculate_polynomial(ctx, options)\n        else:\n            raise ValueError('unknown calculation method')\n        if computed['status'] != 'ok':\n            raise ValueError(computed.get('detail', 'calculation needs input'))\n        result = computed['outputs']\n        result['source_unit'] = source_unit\n        if result.get('output_percent') and contract['scale'] != 'as_is':\n            raise ValueError('Calculation already multiplied by 100; format scale must be as_is')\n        scalable = (method == 'statistics' and options['operation'] == 'coefficient_variation' or\n                    method == 'series_metrics' and op in {'ratio', 'percent_change', 'absolute_relative_change',\n                        'cagr', 'geometric_growth', 'symmetric_difference', 'share_difference'})\n        if contract['scale'] == 'fraction_to_percent' and not scalable:\n            raise ValueError('This operation retains its scale; use format scale=as_is')\n        value = result.get('value', result.get('answer'))\n        if method == 'polynomial_forecast':\n            value = result['prediction'] if options['operation'] == 'predict' else result['absolute_difference']\n        return {'status': 'ok', 'outputs': {'answer': format_answer(value, contract),\n            'calculation': result, 'evidence': evidence, 'format': contract,\n            'proof_scope': 'literal source extraction and named computation; caller selects question semantics'}}\n    except (KeyError, ValueError, TypeError, ArithmeticError) as exc:\n        return {'status': 'needs_input', 'outputs': {}, 'detail': str(exc),\n            'recovery': getattr(exc, 'recovery', {'code': 'calculation_contract'}),\n            'next_action': 'Change the indicated selector/contract using observed evidence. If ambiguous, use an explicit source-bound computation; do not repeat guesses.'}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "submit_answer": {
+            "const": true
+          },
+          "tables": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "source_ref": {
+                  "type": "object",
+                  "properties": {
+                    "result_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "result_id",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                },
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "minItems": 1,
+                  "maxItems": 240,
+                  "uniqueItems": true
+                },
+                "column": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "header_hint": {
+                  "type": "string"
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "length": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 24000
+                },
+                "header_path": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "minItems": 1
+                },
+                "scope_quote": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "key",
+                "source_ref",
+                "rows",
+                "column",
+                "unit"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 8
+          },
+          "bindings": {
+            "type": "object",
+            "propertyNames": {
+              "enum": [
+                "from_value",
+                "to_value",
+                "base_value",
+                "new_value",
+                "numerator",
+                "denominator",
+                "values",
+                "other_values",
+                "observations",
+                "actual"
+              ]
+            },
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1,
+              "maxItems": 8,
+              "uniqueItems": true
+            }
+          },
+          "calculation": {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "enum": [
+                  "difference",
+                  "ratio",
+                  "percent_change",
+                  "log_return",
+                  "cagr",
+                  "annual_log_growth",
+                  "sum",
+                  "mean",
+                  "median",
+                  "std_population",
+                  "std_sample",
+                  "variance_population",
+                  "variance_sample",
+                  "gini_population",
+                  "gini_sample_adjusted",
+                  "correlation",
+                  "ols_slope",
+                  "ols_intercept",
+                  "geometric_growth",
+                  "symmetric_difference",
+                  "share_difference",
+                  "predict",
+                  "absolute_error",
+                  "absolute_relative_change",
+                  "coefficient_variation",
+                  "z_score",
+                  "mean_spread"
+                ]
+              },
+              "output_percent": {
+                "type": "boolean"
+              },
+              "absolute": {
+                "type": "boolean"
+              },
+              "periods": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "method": {
+                "enum": [
+                  "series_metrics",
+                  "polynomial_forecast",
+                  "statistics"
+                ]
+              },
+              "degree": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5
+              },
+              "first_x": {
+                "type": "number"
+              },
+              "x_step": {
+                "type": "number"
+              },
+              "prediction_x": {
+                "type": "number"
+              },
+              "ddof": {
+                "enum": [
+                  0,
+                  1
+                ]
+              },
+              "observation": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "transform": {
+                "enum": [
+                  "none",
+                  "first_difference"
+                ]
+              }
+            },
+            "required": [
+              "method",
+              "operation"
+            ],
+            "additionalProperties": false,
+            "description": "Choose exactly one named method. Bind operands separately; never guess option names.",
+            "oneOf": [
+              {
+                "properties": {
+                  "method": {
+                    "const": "series_metrics"
+                  },
+                  "operation": {
+                    "enum": [
+                      "difference",
+                      "ratio",
+                      "percent_change",
+                      "log_return",
+                      "cagr",
+                      "annual_log_growth",
+                      "sum",
+                      "mean",
+                      "median",
+                      "std_population",
+                      "std_sample",
+                      "variance_population",
+                      "variance_sample",
+                      "gini_population",
+                      "gini_sample_adjusted",
+                      "correlation",
+                      "ols_slope",
+                      "ols_intercept",
+                      "geometric_growth",
+                      "symmetric_difference",
+                      "share_difference",
+                      "absolute_relative_change"
+                    ]
+                  }
+                },
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "transform"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ddof"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "observation"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "degree"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "first_x"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "x_step"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "prediction_x"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "properties": {
+                  "method": {
+                    "const": "statistics"
+                  },
+                  "operation": {
+                    "enum": [
+                      "coefficient_variation",
+                      "z_score",
+                      "mean_spread"
+                    ]
+                  }
+                },
+                "required": [
+                  "transform"
+                ],
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "operation": {
+                          "enum": [
+                            "coefficient_variation",
+                            "z_score"
+                          ]
+                        }
+                      }
+                    },
+                    "then": {
+                      "required": [
+                        "ddof"
+                      ]
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "operation": {
+                          "const": "z_score"
+                        }
+                      }
+                    },
+                    "then": {
+                      "required": [
+                        "observation"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "properties": {
+                  "method": {
+                    "const": "polynomial_forecast"
+                  },
+                  "operation": {
+                    "enum": [
+                      "predict",
+                      "absolute_error"
+                    ]
+                  }
+                },
+                "required": [
+                  "degree",
+                  "prediction_x"
+                ]
+              }
+            ]
+          },
+          "format": {
+            "type": "object",
+            "properties": {
+              "style": {
+                "enum": [
+                  "number",
+                  "percent",
+                  "unit_suffix"
+                ]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              },
+              "scale": {
+                "enum": [
+                  "as_is",
+                  "fraction_to_percent"
+                ]
+              },
+              "suffix": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "style",
+              "decimals",
+              "scale"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "submit_answer",
+          "tables",
+          "bindings",
+          "calculation",
+          "format"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "calculation": {
+            "type": "object"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "proof_scope": {
+            "type": "string"
+          },
+          "format": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "answer",
+          "calculation",
+          "evidence",
+          "proof_scope",
+          "format"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [
+        "read_result"
+      ],
+      "id": "program_d58ded73589f766698b611880d332c67b30c8f8191b5da2550aeef2952247787"
+    },
+    {
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "final_answer",
+      "entry_constraints": {
+        "selector": "retrieval_program",
+        "description": "Scoped issue/text retrieval (local windows only)",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.programmatic.v5.20261020",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "title": "computed_scalar: submit a numeric result leaf with explicit number/percent/unit format",
+      "source_file": "../office_humanstrong_v5/programs/computed_scalar.py",
+      "source": "\"\"\"Render an explicit answer contract; never infer formatting from gold or task ID.\"\"\"\nimport re\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef format_answer(value, contract):\n    allowed = {'style', 'decimals', 'scale', 'suffix'}\n    if set(contract)-allowed or not {'style', 'decimals', 'scale'} <= set(contract):\n        raise ValueError('format requires style, decimals, scale; suffix only for unit_suffix')\n    style, digits, scale = contract['style'], contract['decimals'], contract['scale']\n    if style not in ('number', 'percent', 'unit_suffix') or type(digits) is not int or not 0 <= digits <= 18:\n        raise ValueError('style number|percent|unit_suffix and decimals 0..18 required')\n    if scale not in ('as_is', 'fraction_to_percent'):\n        raise ValueError('Explicit scale as_is|fraction_to_percent required')\n    if style != 'unit_suffix' and 'suffix' in contract:\n        raise ValueError('Only unit_suffix accepts a suffix; number never appends units')\n    suffix = contract.get('suffix', '')\n    if style == 'unit_suffix' and (not isinstance(suffix, str) or not suffix.strip() or\n            len(suffix) > 60 or '\\n' in suffix or '%' in suffix):\n        raise ValueError('unit_suffix requires a short literal unit; use percent for %')\n    if type(value) not in (str, int, float):\n        raise ValueError('A numeric result leaf is required; do not pass prose/reason or an entire object')\n    if isinstance(value, str) and not re.fullmatch(r'[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?', value.strip()):\n        raise ValueError('Result must be numeric without units, commas or explanation')\n    with localcontext() as context:\n        context.prec = 60\n        number = Decimal(str(value))\n        if not number.is_finite(): raise ValueError('nonfinite result')\n        if scale == 'fraction_to_percent': number *= 100\n        number = number.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)\n        if number == 0: number = abs(number)\n        answer = format(number, f'.{digits}f')\n    if style == 'percent': answer += '%'\n    if style == 'unit_suffix': answer += ' '+suffix.strip()\n    return answer\n\n\ndef read_numeric(ctx, ref):\n    if ctx.remaining_calls() <= 0: raise ValueError('No tool budget left to read computed result')\n    result = ctx.call('read_result', {**ref, 'offset': 0, 'limit': 256})\n    if not result.get('accepted') or result.get('next_offset') is not None:\n        raise ValueError('Computed result is unavailable or incomplete; select a numeric leaf')\n    return result['data']\n\n\n\"\"\"Final scalar submission from an already acquired numeric result.\"\"\"\n\n\ndef run(ctx, inputs):\n    try:\n        if inputs['submit_answer'] is not True: raise ValueError('Explicit final submission required')\n        ref, contract = inputs['value_ref'], inputs['format']\n        value = read_numeric(ctx, ref)\n        return {'status': 'ok', 'outputs': {'answer': format_answer(value, contract),\n            'evidence': [{'source_ref': ref, 'value': value, 'format': contract}],\n            'proof_scope': 'formatting an acquired numeric result, not verifying its question semantics'}}\n    except (KeyError, ValueError, TypeError, ArithmeticError) as exc:\n        return {'status': 'needs_input', 'outputs': {}, 'detail': str(exc)}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "value_ref": {
+            "type": "object",
+            "properties": {
+              "result_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "result_id",
+              "path"
+            ],
+            "additionalProperties": false
+          },
+          "format": {
+            "type": "object",
+            "properties": {
+              "style": {
+                "enum": [
+                  "number",
+                  "percent",
+                  "unit_suffix"
+                ]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              },
+              "scale": {
+                "enum": [
+                  "as_is",
+                  "fraction_to_percent"
+                ]
+              },
+              "suffix": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "style",
+              "decimals",
+              "scale"
+            ],
+            "additionalProperties": false
+          },
+          "submit_answer": {
+            "const": true
+          }
+        },
+        "required": [
+          "value_ref",
+          "format",
+          "submit_answer"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array"
+          },
+          "proof_scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "evidence",
+          "proof_scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [
+        "read_result"
+      ],
+      "id": "program_9c9e9b3ea114c40483f24341729c644c5c63b0b7b7aa7003fae98fafd8cb734a"
+    },
+    {
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "final_answer",
+      "entry_constraints": {
+        "selector": "retrieval_program",
+        "description": "Scoped issue/text retrieval (local windows only)",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.programmatic.v5.20261020",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "title": "computed_list: submit ordered numeric result leaves with per-field formats",
+      "source_file": "../office_humanstrong_v5/programs/computed_list.py",
+      "source": "\"\"\"Render an explicit answer contract; never infer formatting from gold or task ID.\"\"\"\nimport re\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef format_answer(value, contract):\n    allowed = {'style', 'decimals', 'scale', 'suffix'}\n    if set(contract)-allowed or not {'style', 'decimals', 'scale'} <= set(contract):\n        raise ValueError('format requires style, decimals, scale; suffix only for unit_suffix')\n    style, digits, scale = contract['style'], contract['decimals'], contract['scale']\n    if style not in ('number', 'percent', 'unit_suffix') or type(digits) is not int or not 0 <= digits <= 18:\n        raise ValueError('style number|percent|unit_suffix and decimals 0..18 required')\n    if scale not in ('as_is', 'fraction_to_percent'):\n        raise ValueError('Explicit scale as_is|fraction_to_percent required')\n    if style != 'unit_suffix' and 'suffix' in contract:\n        raise ValueError('Only unit_suffix accepts a suffix; number never appends units')\n    suffix = contract.get('suffix', '')\n    if style == 'unit_suffix' and (not isinstance(suffix, str) or not suffix.strip() or\n            len(suffix) > 60 or '\\n' in suffix or '%' in suffix):\n        raise ValueError('unit_suffix requires a short literal unit; use percent for %')\n    if type(value) not in (str, int, float):\n        raise ValueError('A numeric result leaf is required; do not pass prose/reason or an entire object')\n    if isinstance(value, str) and not re.fullmatch(r'[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?', value.strip()):\n        raise ValueError('Result must be numeric without units, commas or explanation')\n    with localcontext() as context:\n        context.prec = 60\n        number = Decimal(str(value))\n        if not number.is_finite(): raise ValueError('nonfinite result')\n        if scale == 'fraction_to_percent': number *= 100\n        number = number.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)\n        if number == 0: number = abs(number)\n        answer = format(number, f'.{digits}f')\n    if style == 'percent': answer += '%'\n    if style == 'unit_suffix': answer += ' '+suffix.strip()\n    return answer\n\n\ndef read_numeric(ctx, ref):\n    if ctx.remaining_calls() <= 0: raise ValueError('No tool budget left to read computed result')\n    result = ctx.call('read_result', {**ref, 'offset': 0, 'limit': 256})\n    if not result.get('accepted') or result.get('next_offset') is not None:\n        raise ValueError('Computed result is unavailable or incomplete; select a numeric leaf')\n    return result['data']\n\n\n\"\"\"Ordered final list, independently formatted fields and no model rewrite.\"\"\"\n\n\ndef run(ctx, inputs):\n    try:\n        if inputs['submit_answer'] is not True: raise ValueError('Explicit final submission required')\n        items = inputs['items']\n        if not 1 <= len(items) <= 32: raise ValueError('Ordered list requires 1..32 items')\n        values, evidence = [], []\n        for item in items:\n            value = read_numeric(ctx, item['value_ref'])\n            values.append(format_answer(value, item['format']))\n            evidence.append({'source_ref': item['value_ref'], 'value': value, 'format': item['format']})\n        layout = inputs['layout']\n        if layout not in ('brackets', 'comma', 'lines'): raise ValueError('Explicit list layout required')\n        answer = ('\\n' if layout == 'lines' else ', ').join(values)\n        if layout == 'brackets': answer = '['+answer+']'\n        return {'status': 'ok', 'outputs': {'answer': answer, 'evidence': evidence,\n            'proof_scope': 'ordered formatting of acquired numeric results; caller selects requested order'}}\n    except (KeyError, ValueError, TypeError, ArithmeticError) as exc:\n        return {'status': 'needs_input', 'outputs': {}, 'detail': str(exc)}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value_ref": {
+                  "type": "object",
+                  "properties": {
+                    "result_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "result_id",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                },
+                "format": {
+                  "type": "object",
+                  "properties": {
+                    "style": {
+                      "enum": [
+                        "number",
+                        "percent",
+                        "unit_suffix"
+                      ]
+                    },
+                    "decimals": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 18
+                    },
+                    "scale": {
+                      "enum": [
+                        "as_is",
+                        "fraction_to_percent"
+                      ]
+                    },
+                    "suffix": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "style",
+                    "decimals",
+                    "scale"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "value_ref",
+                "format"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 32
+          },
+          "layout": {
+            "enum": [
+              "brackets",
+              "comma",
+              "lines"
+            ]
+          },
+          "submit_answer": {
+            "const": true
+          }
+        },
+        "required": [
+          "items",
+          "layout",
+          "submit_answer"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array"
+          },
+          "proof_scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "evidence",
+          "proof_scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [
+        "read_result"
+      ],
+      "id": "program_475325d901063c2cb9dfd80a0085c973f369d53ad07badfc4c63c17537e7cd37"
+    }
+  ],
+  "implementation": [
+    {
+      "kind": "implementation",
+      "skill_id": "skill_c58e52baef27dfeae868957fd8f0a5882f527087461929054d4d509d8b2a4e3d",
+      "program_id": "program_b81b047cbb68a37ed1501de4fe096dad8459d0211229fea640d632135d607b6a",
+      "goal": "Scoped issue/text retrieval (local windows only)",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "implementation_66ef8625e530534266da5a10f354b37821bd146ae7f42a5811b399aade15135b"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_460e1371dc983adf0cb6c0eff37f7ba519e2f0095417e7c539bf51eac14bf7aa",
+      "program_id": "program_cc0801fc5400b57b7880d95cf7114143d0713b40ae62f838c8040b5aa9d74cba",
+      "goal": "table_extract: literal rows with validated leaf headers; ambiguous hierarchy returns repair feedback",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "implementation_61701439c73a8a215c2152f8bc8213237ac616a5123eaef21fe51eeb08732d6f"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_7204df1b06f62747770f29c75ccaadc6e25d21ec819fc76f15cd0ab48c5fc089",
+      "program_id": "program_c76cbe063d5676e5d9e4a1beb6fb3befadbbfd7097e24f894c8abe513b475c61",
+      "goal": "Exact scalar/series formulas; explicit change, symmetric difference, share difference and units",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "implementation_ef6a54b56d75184fb6c4b95154719c9ecdfe30f16a3930376954efe5411dc799"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_ce17eb07fe9111e9a19f5db293a5861fb585ddbecd4dd375cc67d0cd00567e0f",
+      "program_id": "program_a6bf157bfb964f4ef70038a8e07a25619488afc9c75d089f26a955ffaeef2710",
+      "goal": "Explicit period completeness ledger without missing-value guesses",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "implementation_d6a0f7ffafaa96bb50a3a73e5382163e07a78972e287e2a060fcc79f6f83b795"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_c5448a1acf7aa3921ff2e9ba6c9465fc4d19b4dcaeaadc98143c385e14fa2461",
+      "program_id": "program_bd52f6290acc346460ec4cd7404eb95792d47459c47ff82f771c196f1c9e0fb6",
+      "goal": "Exact Treasury unit, quote, Box-Cox and exchange transform",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "implementation_79c7c79134330892a280f67666e8c091560ebb79bff1107a5477c6d70239ed6c"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_48eabcf715842a6ce5317f1f7a4e6243ddf35a1dc8ee31d908523c7b7db9d979",
+      "program_id": "program_a82b9d873d367a665277d9530d7580bab1ebcf297abef550979bcd276db86b0b",
+      "goal": "Polynomial OLS forecast or absolute prediction error; explicit period coverage and source operands",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "implementation_fe5725aa4109c87a5ce2098988945055bf9d615825fca636b315c5a45c148802"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_460e1371dc983adf0cb6c0eff37f7ba519e2f0095417e7c539bf51eac14bf7aa",
+      "program_id": "program_d58ded73589f766698b611880d332c67b30c8f8191b5da2550aeef2952247787",
+      "goal": "table_calculate: source rows → exact named arithmetic → explicit scalar format → final submission",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "implementation_b286ec7199095a3ea056b6e8c3afef1573b7666e2654c693feae9355e810721d"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_76437a03a7647293e3ef80f50ff12106519308bba82c142ef5db7546284dad84",
+      "program_id": "program_9c9e9b3ea114c40483f24341729c644c5c63b0b7b7aa7003fae98fafd8cb734a",
+      "goal": "computed_scalar: submit a numeric result leaf with explicit number/percent/unit format",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "implementation_27f8ba9f7b6aac8c0ddff9bc9931def870591993380f1cb5f7b5190df55c83ee"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_76437a03a7647293e3ef80f50ff12106519308bba82c142ef5db7546284dad84",
+      "program_id": "program_475325d901063c2cb9dfd80a0085c973f369d53ad07badfc4c63c17537e7cd37",
+      "goal": "computed_list: submit ordered numeric result leaves with per-field formats",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "id": "implementation_42010f8b1555da302e9303ee1ad5293189f523110ec4d3a1b640115394bd340d"
+    }
+  ],
+  "workflow": [
+    {
+      "interface_version": "empirical.workflow.v2",
+      "title": "search_to_anchored_read",
+      "goal": "Acquire real document windows and interpret their exact table role",
+      "nodes": [
+        {
+          "id": "plan_query",
+          "execution_mode": "dynamic",
+          "goal": "Derive a narrow query and permitted file pattern from task without guessing values; return query.",
+          "reference_skill_ids": [
+            "skill_e878da455dbcf7dc863acc5d3e985609dc5698efc480c1c23ed4bd24c05afbff",
+            "skill_c58e52baef27dfeae868957fd8f0a5882f527087461929054d4d509d8b2a4e3d"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          },
+          "after": []
+        },
+        {
+          "id": "retrieve",
+          "execution_mode": "program",
+          "program_id": "program_b81b047cbb68a37ed1501de4fe096dad8459d0211229fea640d632135d607b6a",
+          "args": {
+            "query": {
+              "from": "plan_query",
+              "field": "query"
+            }
+          },
+          "after": [
+            "plan_query"
+          ]
+        },
+        {
+          "id": "interpret",
+          "execution_mode": "dynamic",
+          "goal": "Inspect acquired windows and verify table title/period/unit; return final answer only if genuinely resolved.",
+          "reference_skill_ids": [
+            "skill_460e1371dc983adf0cb6c0eff37f7ba519e2f0095417e7c539bf51eac14bf7aa",
+            "skill_76437a03a7647293e3ef80f50ff12106519308bba82c142ef5db7546284dad84"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "windows": {
+              "from": "retrieve",
+              "field": "windows"
+            }
+          },
+          "after": [
+            "retrieve"
+          ]
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "interpret",
+          "field": "answer"
+        }
+      },
+      "origin": "human_authored",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "execution_permission": "manual_optional_not_auto",
+      "id": "workflow_ddc0acfc94dc70ecf16f99b12b3de00aaa03eecbc6d2f76ecc813d3d35a426e0"
+    },
+    {
+      "interface_version": "empirical.workflow.v2",
+      "title": "table_to_numeric",
+      "goal": "Acquire a verified table window and compute from literal cells",
+      "nodes": [
+        {
+          "id": "spec",
+          "execution_mode": "dynamic",
+          "goal": "Acquire an actual bounded table window with target row/column/unit; return text, rows, column, unit, not invented values.",
+          "reference_skill_ids": [
+            "skill_460e1371dc983adf0cb6c0eff37f7ba519e2f0095417e7c539bf51eac14bf7aa",
+            "skill_e878da455dbcf7dc863acc5d3e985609dc5698efc480c1c23ed4bd24c05afbff"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          },
+          "after": []
+        },
+        {
+          "id": "extract",
+          "execution_mode": "program",
+          "program_id": "program_cc0801fc5400b57b7880d95cf7114143d0713b40ae62f838c8040b5aa9d74cba",
+          "args": {
+            "text": {
+              "from": "spec",
+              "field": "text"
+            },
+            "rows": {
+              "from": "spec",
+              "field": "rows"
+            },
+            "column": {
+              "from": "spec",
+              "field": "column"
+            },
+            "unit": {
+              "from": "spec",
+              "field": "unit"
+            }
+          },
+          "after": [
+            "spec"
+          ]
+        },
+        {
+          "id": "answer",
+          "execution_mode": "dynamic",
+          "goal": "Use extracted values only with correct question semantics; compute if needed and provide the target.",
+          "reference_skill_ids": [
+            "skill_7204df1b06f62747770f29c75ccaadc6e25d21ec819fc76f15cd0ab48c5fc089",
+            "skill_76437a03a7647293e3ef80f50ff12106519308bba82c142ef5db7546284dad84"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "cells": {
+              "from": "extract",
+              "field": "cells"
+            }
+          },
+          "after": [
+            "extract"
+          ]
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "answer",
+          "field": "answer"
+        }
+      },
+      "origin": "human_authored",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "execution_permission": "manual_optional_not_auto",
+      "id": "workflow_e03ffe9ad688b41a12bf1d15fb580cc5751432ec82385935861ffd59d0d27488"
+    },
+    {
+      "interface_version": "empirical.workflow.v2",
+      "title": "complete_time_series",
+      "goal": "Check all explicitly requested years before calculation",
+      "nodes": [
+        {
+          "id": "collect",
+          "execution_mode": "dynamic",
+          "goal": "From real acquired evidence collect each period-value-source_ref and required period list; never fill missing.",
+          "reference_skill_ids": [
+            "skill_ce17eb07fe9111e9a19f5db293a5861fb585ddbecd4dd375cc67d0cd00567e0f",
+            "skill_460e1371dc983adf0cb6c0eff37f7ba519e2f0095417e7c539bf51eac14bf7aa"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          },
+          "after": []
+        },
+        {
+          "id": "coverage",
+          "execution_mode": "program",
+          "program_id": "program_a6bf157bfb964f4ef70038a8e07a25619488afc9c75d089f26a955ffaeef2710",
+          "args": {
+            "required_periods": {
+              "from": "collect",
+              "field": "required_periods"
+            },
+            "observations": {
+              "from": "collect",
+              "field": "observations"
+            }
+          },
+          "after": [
+            "collect"
+          ]
+        },
+        {
+          "id": "finish_or_search",
+          "execution_mode": "dynamic",
+          "goal": "If missing periods, retrieve only actual missing sources; otherwise compute the exact requested statistic.",
+          "reference_skill_ids": [
+            "skill_ce17eb07fe9111e9a19f5db293a5861fb585ddbecd4dd375cc67d0cd00567e0f",
+            "skill_7204df1b06f62747770f29c75ccaadc6e25d21ec819fc76f15cd0ab48c5fc089",
+            "skill_76437a03a7647293e3ef80f50ff12106519308bba82c142ef5db7546284dad84"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "coverage": {
+              "from": "coverage",
+              "field": "complete"
+            },
+            "missing_periods": {
+              "from": "coverage",
+              "field": "missing_periods"
+            },
+            "series": {
+              "from": "coverage",
+              "field": "aligned_observations"
+            }
+          },
+          "after": [
+            "coverage"
+          ]
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "finish_or_search",
+          "field": "answer"
+        }
+      },
+      "origin": "human_authored",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "execution_permission": "manual_optional_not_auto",
+      "id": "workflow_30cab67c51b7912af1645d26b23004f71e8f42c89a02ad63742d5babdbbc1e72"
+    },
+    {
+      "interface_version": "empirical.workflow.v2",
+      "title": "array_statistic",
+      "goal": "Run an array-style statistic (sum, mean, dispersion, correlation or OLS) with real source values; named ratio/change/difference use their separate Program ABI.",
+      "nodes": [
+        {
+          "id": "align",
+          "execution_mode": "dynamic",
+          "goal": "Read actual aligned source values for a supported array statistic; produce operation, values, unit (and other_values only when supported).",
+          "reference_skill_ids": [
+            "skill_460e1371dc983adf0cb6c0eff37f7ba519e2f0095417e7c539bf51eac14bf7aa",
+            "skill_7204df1b06f62747770f29c75ccaadc6e25d21ec819fc76f15cd0ab48c5fc089"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            }
+          },
+          "after": []
+        },
+        {
+          "id": "compute",
+          "execution_mode": "program",
+          "program_id": "program_c76cbe063d5676e5d9e4a1beb6fb3befadbbfd7097e24f894c8abe513b475c61",
+          "args": {
+            "operation": {
+              "from": "align",
+              "field": "operation"
+            },
+            "values": {
+              "from": "align",
+              "field": "values"
+            },
+            "unit": {
+              "from": "align",
+              "field": "unit"
+            }
+          },
+          "after": [
+            "align"
+          ]
+        },
+        {
+          "id": "finalize",
+          "execution_mode": "dynamic",
+          "goal": "Check that executed formula and input semantics match question; commit only requested output.",
+          "reference_skill_ids": [
+            "skill_7204df1b06f62747770f29c75ccaadc6e25d21ec819fc76f15cd0ab48c5fc089",
+            "skill_76437a03a7647293e3ef80f50ff12106519308bba82c142ef5db7546284dad84"
+          ],
+          "args": {
+            "goal": {
+              "task": "goal"
+            },
+            "calculation": {
+              "from": "compute",
+              "field": "answer"
+            }
+          },
+          "after": [
+            "compute"
+          ]
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "finalize",
+          "field": "answer"
+        }
+      },
+      "origin": "human_authored",
+      "method_version": "office.humanstrong.programmatic.v6.20261021",
+      "execution_permission": "manual_optional_not_auto",
+      "id": "workflow_5f0235cc830f5a1a48e018f5e4d5386057fc583b786c8d4360e4c92750fca618"
+    }
+  ],
+  "parent_bank_digest": "410811dd8409585f02735dc0c4b24b1d032aaa2141b80c00ea381702a7e4ebf3"
+}

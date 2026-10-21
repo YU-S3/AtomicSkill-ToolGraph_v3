@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "stage": "fulltest1400",
+  "tasks": 1400,
+  "arms": [
+    "v7_repeat_1",
+    "v7_repeat_2"
+  ],
+  "at": "2026-10-20T16:04:15.402615+00:00",
+  "real_http": 0,
+  "allocation": {
+    "tokens": 16000000,
+    "http": 6000
+  },
+  "identical_original_v7_bank": true,
+  "identical_model_and_runtime": true,
+  "canonical_manifest_verified": true,
+  "source_unchanged": true,
+  "both_repetitions_have_empty_task_storage": true,
+  "concurrent_v8_fully_reserved": {
+    "tokens": 16000000,
+    "http": 6000
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "passed": true,
+  "at": "2026-10-20T16:05:33.037270+00:00",
+  "source": {
+    "git_sha": "b1305aeb7075757be2888813e54e3f7aa7e88683",
+    "tracked_dirty": false,
+    "source_sha256": "378897412ce7b318cbb027fffd8762119156f2ce4a75bbe1c7f01aaaf0d70439"
+  },
+  "plan_sha256": "c708a6c1e8c4413e937a97743440bee2505455dc548c3e16b6958af51a77153e",
+  "arms": {
+    "v7_repeat_1": {
+      "completed": 4,
+      "actual_messages_match_original_v7": true,
+      "all_native_nodes_completed": true,
+      "all_programs_ok": true,
+      "model_calls_per_task": 1,
+      "public_input_unchanged": true,
+      "response_models": {
+        "deepseek-flash": 4
+      },
+      "system_fingerprints": {
+        "e72d3c7f663d3e1383b00b3884cb4501": 4
+      }
+    },
+    "v7_repeat_2": {
+      "completed": 4,
+      "actual_messages_match_original_v7": true,
+      "all_native_nodes_completed": true,
+      "all_programs_ok": true,
+      "model_calls_per_task": 1,
+      "public_input_unchanged": true,
+      "response_models": {
+        "deepseek-flash": 4
+      },
+      "system_fingerprints": {
+        "e72d3c7f663d3e1383b00b3884cb4501": 4
+      }
+    }
+  },
+  "independent_call_ids": true,
+  "status": {
+    "stage": "fulltest1400",
+    "arms": {
+      "v7_repeat_1": {
+        "completed": 4,
+        "total": 1400,
+        "correct": 4,
+        "tokens": 10091,
+        "native_graphs": 4,
+        "program_calls": 4,
+        "program_ok": 4
+      },
+      "v7_repeat_2": {
+        "completed": 4,
+        "total": 1400,
+        "correct": 4,
+        "tokens": 10044,
+        "native_graphs": 4,
+        "program_calls": 4,
+        "program_ok": 4
+      }
+    },
+    "campaign_tokens": 22681,
+    "campaign_http": 9,
+    "inflight_or_unmetered": 0,
+    "status": "running",
+    "at": "2026-10-20T16:05:34.369541+00:00"
+  },
+  "real_http_from_this_check": 0,
+  "note": "Engineering prefix only, not an accuracy conclusion."
+}
