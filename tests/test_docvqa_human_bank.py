@@ -127,7 +127,8 @@ def test_single_node_delivers_one_skill_and_original_image_without_tools(importe
 
 @pytest.mark.parametrize('finish_reserved', [False, True])
 @pytest.mark.parametrize('evidence_interface,finish_sources', [
-    ('legacy', []), ('scoped', ['crop_1', 'row_1']), ('scoped', ['row_1'])])
+    ('legacy', []), ('scoped', ['crop_1', 'row_1']), ('scoped', ['row_1']),
+    ('compact', ['crop_1', 'row_1']), ('compact', ['row_1'])])
 def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, monkeypatch, finish_reserved, evidence_interface, finish_sources):
     c, _ = imported
     c['data_dir'] = str(tmp_path / 'crop_bank')
@@ -140,10 +141,12 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         bank_view_factory=lambda b: SingleNodeDocVQAView(b, manifest))
     task = PublicTask('docvqa:fixture', 'synthetic-physical', 'What is the account number?',
         {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
-    finish = response(content='74216', finish='stop') if finish_reserved else response([{
-        'action': 'finish', 'evidence_text': 'Account: 74216', 'answer_kind': 'identifier',
-        'answer': '74216', **({'evidence_sources': finish_sources}
-                            if evidence_interface == 'scoped' else {})}], name='answer_step')
+    finish_args = {'action': 'finish', 'answer': '74216'}
+    if evidence_interface != 'compact':
+        finish_args.update(evidence_text='Account: 74216', answer_kind='identifier')
+    if evidence_interface != 'legacy':
+        finish_args['evidence_sources'] = finish_sources
+    finish = response(content='74216', finish='stop') if finish_reserved else response([finish_args], name='answer_step')
     sent = http(monkeypatch, [response([{'action': 'inspect', 'tile': 'B1'}], name='answer_step'), finish])
     if finish_reserved:
         from atomic_skillgraph.core.errors import BudgetExhausted
@@ -166,7 +169,7 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         assert 'bbox' not in schema['properties']
         assert len(schema['properties']['tile']['enum']) == 12
         assert all(0 <= b[0] < b[2] <= 1000 and 0 <= b[1] < b[3] <= 1000 for b in TILES.values())
-        assert 'exactly one answer_step call per response' in sent[0]['messages'][0]['content']
+        assert 'one answer_step call' in sent[0]['messages'][0]['content']
         parts = sent[1]['messages'][1]['content']
         images = [p for p in parts if p['type'] == 'image_url']
         material = json.loads(next(p['text'] for p in parts if p['type'] == 'text'))
@@ -187,8 +190,11 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         assert context['authority'] == 'host_derived_same_source_row_context_not_program_output_or_ocr'
         if not finish_reserved:
             assert 'B1' in sent[1]['tools'][0]['function']['parameters']['properties']['tile']['enum']
-            assert trace['requests'][-1]['response']['tool_calls'][0]['arguments']['evidence_text'] == 'Account: 74216'
-            if evidence_interface == 'scoped':
+            if evidence_interface != 'compact':
+                assert trace['requests'][-1]['response']['tool_calls'][0]['arguments']['evidence_text'] == 'Account: 74216'
+            else:
+                assert not {'evidence_text', 'answer_kind'} & schema['properties'].keys()
+            if evidence_interface != 'legacy':
                 assert 'used_results' not in schema['properties']
                 assert schema['properties']['evidence_sources']['items']['enum'] == ['page']
                 final_schema = sent[1]['tools'][0]['function']['parameters']
@@ -207,24 +213,27 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
 
 
 @pytest.mark.parametrize('source', ['page', 'A2', 'crop_1', None])
-def test_scoped_original_page_never_fabricates_program_consumption(imported, tmp_path, monkeypatch, source):
+@pytest.mark.parametrize('interface', ['scoped', 'compact'])
+def test_scoped_original_page_never_fabricates_program_consumption(imported, tmp_path, monkeypatch, source, interface):
     c, _ = imported
     c['data_dir'] = str(tmp_path / 'scoped_bank')
     config = tmp_path / 'scoped_config.json'; config.write_text(json.dumps(c))
-    prepare_single(ROOT, config, c['data_dir'], crop=True, skill_revision='v7')
+    prepare_single(ROOT, config, c['data_dir'], crop=True, skill_revision='v8', principle_ids=['value'])
     manifest = json.loads((Path(c['data_dir']) / 'manual_manifest.json').read_text())
     adapter = AnswerAdapter('docvqa', {'docvqa:fixture': {'answers': ['74216']}}, c)
     system = EmpiricalSystem(c, harness=adapter, readonly=True,
         bank_view_factory=lambda b: SingleNodeDocVQAView(b, manifest))
     task = PublicTask('docvqa:fixture', 'synthetic-physical', 'What is the account number?',
         {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
-    reply = response([{'action': 'finish', 'evidence_text': 'Account: 74216',
-        'answer_kind': 'identifier', 'answer': '74216', 'evidence_sources': [source]}], name='answer_step')
+    args = {'action': 'finish', 'answer': '74216', 'evidence_sources': [source]}
+    if interface != 'compact':
+        args.update(evidence_text='Account: 74216', answer_kind='identifier')
+    reply = response([args], name='answer_step')
     if source is None:
         reply = response(content='74216', finish='stop')
     sent = http(monkeypatch, [reply])
     try:
-        with single_node_bridge(evidence_interface='scoped'):
+        with single_node_bridge(evidence_interface=interface):
             trace = system.run_task(task, learn=False)
         assert len(sent) == 1 and trace['execution']['internal_execution_count'] == 0
         if source in ('page', None):
@@ -236,6 +245,18 @@ def test_scoped_original_page_never_fabricates_program_consumption(imported, tmp
             assert 'evidence_binding' not in trace['requests'][-1]
     finally:
         system.close()
+
+
+def test_principle_sets_are_explicit_and_compact():
+    from principles import compile_skill
+    catalog = json.loads((ASSETS / 'bank/principles_v8.json').read_text())
+    ids = [r['id'] for r in catalog['principles']]
+    assert compile_skill([])['guidance'] == catalog['core']
+    combined = compile_skill(ids)
+    assert len(combined['guidance']) < 1100
+    assert compile_skill(ids[::-1]) == combined
+    for invalid in [['value', 'value'], ['unobserved']]:
+        with pytest.raises(ValueError): compile_skill(invalid)
 
 
 def test_real_worker_programs_and_crop_wire(imported, monkeypatch):
