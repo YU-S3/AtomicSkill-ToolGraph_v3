@@ -1,0 +1,920 @@
+{
+  "schema": "human.frontier.bank.v1",
+  "benchmark": "officeqa",
+  "method_version": "office.humanstrong.scoped.v10.20261021",
+  "seed": 42,
+  "asset_origin": "external_human_edited_reference_not_learned_ours",
+  "admission": {
+    "learning_provenance": false,
+    "train_transfer_gate": false,
+    "utility_promotion": false
+  },
+  "input_protocol": "office.external-minimax.public-pages.v1",
+  "default_workflow_id": null,
+  "workflow_runtime": "stored_reference_only_native_dynamic_runtime",
+  "measured_performance": null,
+  "status": "development_candidate_not_accepted",
+  "source_basis": "Complete existing Train120 trace review; prior V8/V9 development evidence disclosed. No task IDs or answers in assets.",
+  "skill": [
+    {
+      "kind": "skill",
+      "title": "normalized_midpoint",
+      "goal": "Dimensionless midpoint-normalized difference",
+      "guidance": "A midpoint-normalized difference is a ratio: absolute difference / midpoint. Keep decimal scale; multiply by 100 only if explicitly requested. Round once at the end.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "id": "skill_9350d774672c80fd4ccb3612900bd04537919c7628c8cdf264d59638858f6641"
+    },
+    {
+      "kind": "skill",
+      "title": "series_scope",
+      "goal": "Statistics on exactly the requested observations",
+      "guidance": "List the requested periods before collecting values; exclude other rows even if nearby. Pair series by period. Sample variance uses n-1; population uses n. Missing values are not zero.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "id": "skill_a8d3d5a23e9bbdc0e84494a4ac6e3e67ac46abbcffa655a3598f4dbdee84a067"
+    },
+    {
+      "kind": "skill",
+      "title": "annual_log",
+      "goal": "Continuously compounded annual growth",
+      "guidance": "Continuous annual growth is ln(end/start)/elapsed intervals. Use matching endpoint categories; count time intervals, not inclusive observations. The result is a decimal rate.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "id": "skill_1197d896e0880b4d8bca00aef34a8bd6543ebeb99b2a9c64fdb8c7cefa7b3160"
+    },
+    {
+      "kind": "skill",
+      "title": "compound_growth",
+      "goal": "Compound annual growth",
+      "guidance": "CAGR=(end/start)^(1/elapsed intervals)-1. Keep endpoint units and categories identical. A growth factor is 1+CAGR; multiply a rate by 100 only for percent output.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "id": "skill_92eb85b5451419ee31c6f13922462eddbf37851ec950e8e99ab2d2cc5949cd54"
+    },
+    {
+      "kind": "skill",
+      "title": "regression_coordinates",
+      "goal": "Preserve regression coordinates and error direction",
+      "guidance": "Use the stated predictor: numeric year and zero-based year index have different intercepts. Exclude forecast dates from fitting. Apply the requested actual-minus-forecast or reverse order literally.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "id": "skill_1023d4f7758d99ca9300289ba7372c465e31b4262c8ccceb8da78dde3fa9d4f3"
+    },
+    {
+      "kind": "skill",
+      "title": "price_basis",
+      "goal": "Explicit price-index alignment",
+      "guidance": "For constant-price conversion: nominal amount * target CPI / observation CPI. Match each period to the requested monthly or annual-average index; do not invert the ratio or mix index series.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "id": "skill_3f475b3205de917bcf5cdd0149f7ca86192a40645234dc19441b1d2cf7fe5998"
+    },
+    {
+      "kind": "skill",
+      "title": "table_groups",
+      "goal": "Keep grouped table coordinates intact",
+      "guidance": "Keep blank cells and group headers when parsing tables; removing nonnumeric cells shifts columns. Identify the value by its year and category header, not publication date or numeric position.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "id": "skill_b6e9fdf9e59671f6409fef4c49ee76d67c60dcfad085cc0299e3343d5b28c5a6"
+    }
+  ],
+  "program": [
+    {
+      "source": "\"\"\"Named formulas with explicit conventions; computation, not operand provenance.\"\"\"\nimport math\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef run(ctx,inputs):\n    try:\n        op=inputs['operation'];direction='as_supplied';formula=op\n        named={'difference','ratio','percent_change','log_return','cagr','annual_log_growth'}\n        if 'output_scale' in inputs:raise ValueError('output_scale is unsupported; specify output_percent explicitly')\n        if op in named:\n            if 'values' in inputs:raise ValueError('This operation requires named operands, not positional values')\n            if op=='difference':\n                raw=[inputs['from_value'],inputs['to_value']]\n                if type(inputs['absolute']) is not bool:raise ValueError('absolute must be explicit boolean')\n                formula='abs(to_value-from_value)' if inputs['absolute'] else 'to_value-from_value'\n                direction='absolute' if inputs['absolute'] else 'to_minus_from'\n            elif op=='ratio':\n                raw=[inputs['denominator'],inputs['numerator']];formula='numerator/denominator';direction='numerator_over_denominator'\n            else:\n                raw=[inputs['base_value'],inputs['new_value']];direction='base_to_new'\n                formula={'percent_change':'(new_value-base_value)/base_value','log_return':'ln(new_value/base_value)',\n                         'cagr':'exp(ln(new_value/base_value)/periods)-1',\n                         'annual_log_growth':'ln(new_value/base_value)/periods'}[op]\n        else:raw=inputs['values']\n        if not isinstance(raw,list) or not raw or len(raw)>5000:raise ValueError('1..5000 values required')\n        if any(type(v) not in (str,int,float) for v in raw):raise ValueError('numeric strings/numbers required')\n        with localcontext() as context:\n            context.prec=50\n            x=[Decimal(str(v)) for v in raw]\n            if any(not v.is_finite() for v in x):raise ValueError('nonfinite operand')\n            n=Decimal(len(x));mean=sum(x)/n;convention=op\n            if op=='sum':v=sum(x)\n            elif op=='mean':v=mean\n            elif op=='symmetric_difference':\n                if len(x)!=2:raise ValueError('values must be [first,second]')\n                v=abs(x[1]-x[0])/((abs(x[0])+abs(x[1]))/2)\n                formula='abs(second-first)/((abs(first)+abs(second))/2)';direction='absolute_symmetric'\n            elif op=='share_difference':\n                if len(x)!=4:raise ValueError('values must be [first_part,first_total,second_part,second_total]')\n                if type(inputs.get('absolute')) is not bool:raise ValueError('absolute must be explicit boolean')\n                v=x[2]/x[3]-x[0]/x[1]\n                formula='second_part/second_total-first_part/first_total';direction='second_share_minus_first_share'\n                if inputs['absolute']:v=abs(v);formula='abs('+formula+')';direction='absolute_share_difference'\n            elif op=='median':\n                a=sorted(x);mid=len(a)//2;v=a[mid] if len(a)%2 else (a[mid-1]+a[mid])/2\n            elif op in {'difference','ratio','percent_change','log_return','cagr','annual_log_growth'}:\n                if len(x)!=2:raise ValueError('exactly two values in [start,end] order required')\n                a,b=x\n                if op=='difference':v=abs(b-a) if inputs['absolute'] else b-a\n                elif op=='ratio':v=b/a\n                elif op=='percent_change':v=(b-a)/a\n                else:\n                    if a<=0 or b<=0:raise ValueError('growth operands must be positive')\n                    ratio=b/a\n                    if op=='log_return':v=ratio.ln()\n                    else:\n                        periods=Decimal(str(inputs.get('periods','0')))\n                        if periods<=0:raise ValueError('positive elapsed interval count required, not observation count')\n                        v=ratio.ln()/periods if op=='annual_log_growth' else (ratio.ln()/periods).exp()-1\n            elif op in {'std_population','std_sample','variance_population','variance_sample'}:\n                denominator=n-(1 if op.endswith('sample') else 0)\n                if denominator<=0:raise ValueError('sample requires at least two observations')\n                v=sum((a-mean)**2 for a in x)/denominator\n                if op.startswith('std_'):v=v.sqrt()\n            elif op in {'gini_population','gini_sample_adjusted'}:\n                if min(x)<0 or sum(x)<=0:raise ValueError('Gini requires nonnegative values and positive sum')\n                a=sorted(x);v=sum(Decimal(2*i-len(a)-1)*z for i,z in enumerate(a,1))/(n*sum(a))\n                if op=='gini_sample_adjusted':\n                    if n<=1:raise ValueError('sample correction requires n>1')\n                    v=v*n/(n-1)\n            elif op in {'correlation','ols_slope','ols_intercept'}:\n                raw_y=inputs.get('other_values',[])\n                if len(raw_y)!=len(x) or len(x)<2:raise ValueError('paired x/y arrays of equal length required')\n                y=[Decimal(str(z)) for z in raw_y]\n                if any(not z.is_finite() for z in y):raise ValueError('nonfinite y')\n                my=sum(y)/n;sxx=sum((a-mean)**2 for a in x);sxy=sum((a-mean)*(b-my) for a,b in zip(x,y))\n                if sxx==0:raise ValueError('zero x variance')\n                slope=sxy/sxx\n                if op=='ols_slope':v=slope\n                elif op=='ols_intercept':v=my-slope*mean\n                else:\n                    syy=sum((b-my)**2 for b in y)\n                    if syy==0:raise ValueError('zero y variance')\n                    v=sxy/(sxx*syy).sqrt()\n            elif op=='geometric_growth':\n                if any(1+a<=0 for a in x):raise ValueError('growth factors must be positive')\n                v=(sum((1+a).ln() for a in x)/n).exp()-1\n            else:raise ValueError('unsupported named operation')\n            percent=inputs.get('output_percent',False)\n            if type(percent) is not bool:raise ValueError('output_percent must be boolean')\n            if percent:\n                if op not in {'ratio','percent_change','cagr','geometric_growth','symmetric_difference','share_difference'}:raise ValueError('percent output is not supported for this operation')\n                v*=100;formula='100*('+formula+')'\n            digits=inputs.get('decimals')\n            if digits is not None:\n                if type(digits) is not int or not 0<=digits<=18:raise ValueError('decimals must be 0..18')\n                answer=format(v.quantize(Decimal(1).scaleb(-digits),rounding=ROUND_HALF_UP),'.'+str(digits)+'f')\n            else:answer=format(v,'f').rstrip('0').rstrip('.') if '.' in format(v,'f') else format(v,'f')\n            if answer in ('-0',''):answer='0'\n            return {'status':'ok','outputs':{'value':str(v),'answer':answer,'formula':formula,'direction':direction,\n                'operand_refs':inputs.get('operand_refs',[]),'periods':str(inputs.get('periods','not_applicable')),\n                'unit':inputs['unit'],'output_percent':percent,'proof_scope':'local_computation_only',\n                'convention':convention,'count':len(x)}}\n    except (KeyError,ValueError,TypeError,ArithmeticError) as e:return {'status':'needs_input','outputs':{},'detail':str(e)}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "symmetric_difference"
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decimals": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "result_id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "integer"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "result_id",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "output_percent": {
+            "const": false
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": [
+                "number",
+                "string"
+              ]
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "[first,second]"
+          }
+        },
+        "required": [
+          "operation",
+          "unit",
+          "decimals",
+          "output_percent",
+          "values"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          },
+          "formula": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "periods": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "proof_scope": {
+            "type": "string"
+          },
+          "convention": {
+            "type": "string"
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "result_id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "integer"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "result_id",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "output_percent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "value",
+          "answer",
+          "formula",
+          "direction",
+          "operand_refs",
+          "periods",
+          "unit",
+          "proof_scope",
+          "convention",
+          "count",
+          "output_percent"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "calculation_program",
+        "description": "Typed arithmetic on already acquired operands",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "id": "program_d9e84df89f61c3bffe7687d42fc5d0ca88e632e184512966809db6f166712ae0",
+      "source_file": "../office_humanstrong_v2/programs/series_metrics.py",
+      "title": "Dimensionless midpoint-normalized difference; local computation only",
+      "operation": "symmetric_difference"
+    },
+    {
+      "source": "\"\"\"Small explicit-period statistics; validates scope, not the truth of operands.\"\"\"\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef run(ctx, inputs):\n    try:\n        wanted, records = inputs['requested_periods'], inputs['records']\n        if not wanted or len(wanted) != len(set(wanted)):\n            raise ValueError('requested_periods must be nonempty and unique')\n        by_period = {}\n        for row in records:\n            period = row['period']\n            if period in by_period: raise ValueError('duplicate observation: '+period)\n            by_period[period] = row\n        missing = [p for p in wanted if p not in by_period]\n        if missing: raise ValueError('missing requested periods: '+', '.join(missing))\n        rows = [by_period[p] for p in wanted]\n        op, digits = inputs['statistic'], inputs['decimals']\n        if type(digits) is not int or not 0 <= digits <= 18: raise ValueError('invalid decimals')\n        def number(value):\n            if type(value) not in (str, int, float): raise ValueError('numeric operands required')\n            d = Decimal(str(value))\n            if not d.is_finite(): raise ValueError('nonfinite operand')\n            return d\n        with localcontext() as context:\n            context.prec = 50\n            y = [number(r['value']) for r in rows]\n            n = Decimal(len(y)); mean = sum(y)/n\n            formula = op\n            if op == 'mean': value = mean\n            elif op == 'geometric_mean':\n                if min(y) <= 0: raise ValueError('geometric mean requires positive values')\n                value = (sum(v.ln() for v in y)/n).exp()\n            elif op in ('variance_sample', 'variance_population', 'std_sample', 'std_population'):\n                divisor = n - int(op.endswith('sample'))\n                if divisor <= 0: raise ValueError('sample statistic needs at least two observations')\n                value = sum((v-mean)**2 for v in y)/divisor\n                if op.startswith('std'): value = value.sqrt()\n            elif op in ('correlation', 'ols_slope', 'ols_intercept', 'forecast_minus_actual', 'actual_minus_forecast'):\n                x = [number(r['x']) for r in rows]\n                mx = sum(x)/n\n                sxx = sum((v-mx)**2 for v in x)\n                if not sxx: raise ValueError('predictor has zero variance')\n                sxy = sum((a-mx)*(b-mean) for a,b in zip(x,y))\n                slope = sxy/sxx; intercept = mean-slope*mx\n                if op == 'correlation':\n                    syy = sum((v-mean)**2 for v in y)\n                    if not syy: raise ValueError('response has zero variance')\n                    value = sxy/(sxx*syy).sqrt()\n                elif op == 'ols_slope': value = slope\n                elif op == 'ols_intercept': value = intercept\n                else:\n                    fx = number(inputs['forecast_x'])\n                    if fx in x: raise ValueError('forecast predictor must be outside fitting observations')\n                    forecast = intercept+slope*fx\n                    actual = number(inputs['actual'])\n                    value = forecast-actual if op == 'forecast_minus_actual' else actual-forecast\n            else: raise ValueError('unsupported statistic; use native Python for other definitions')\n            quantized = value.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)\n            if quantized == 0: quantized = abs(quantized)\n            return {'status':'ok', 'outputs':{\n                'value':str(value), 'answer':format(quantized, '.'+str(digits)+'f'), 'formula':formula,\n                'selected_periods':wanted, 'excluded_periods':[p for p in by_period if p not in wanted],\n                'count':len(rows), 'unit':inputs['unit'], 'proof_scope':'local_computation_only'}}\n    except (KeyError, ValueError, TypeError, ArithmeticError) as error:\n        return {'status':'needs_input', 'outputs':{}, 'detail':str(error)}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "statistic": {
+            "enum": [
+              "mean",
+              "geometric_mean",
+              "variance_sample",
+              "variance_population",
+              "std_sample",
+              "std_population",
+              "correlation",
+              "ols_slope",
+              "ols_intercept",
+              "forecast_minus_actual",
+              "actual_minus_forecast"
+            ]
+          },
+          "requested_periods": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            },
+            "description": "Exact requested fitting/measurement periods, in order; exclude forecast dates."
+          },
+          "records": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "items": {
+              "type": "object",
+              "properties": {
+                "period": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "x": {
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "period",
+                "value"
+              ],
+              "additionalProperties": false
+            },
+            "description": "One record per observed period. value=response; x=predictor for paired/OLS statistics, in explicitly requested coordinates. No unit conversion is performed."
+          },
+          "decimals": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "forecast_x": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "actual": {
+            "type": [
+              "number",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "statistic",
+          "requested_periods",
+          "records",
+          "decimals",
+          "unit"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          },
+          "formula": {
+            "type": "string"
+          },
+          "selected_periods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "excluded_periods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "proof_scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "answer",
+          "formula",
+          "selected_periods",
+          "excluded_periods",
+          "count",
+          "unit",
+          "proof_scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "calculation_program",
+        "description": "Typed arithmetic on already acquired operands",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "id": "program_ba8c4422a65a82f42233b29fcc3b413e9743f275307bdbc18b5e80304ebce0e6",
+      "source_file": "programs/scoped_statistics.py",
+      "title": "Statistics on exactly the requested observations; local computation only",
+      "operation": "scoped_statistics"
+    },
+    {
+      "source": "\"\"\"Named formulas with explicit conventions; computation, not operand provenance.\"\"\"\nimport math\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef run(ctx,inputs):\n    try:\n        op=inputs['operation'];direction='as_supplied';formula=op\n        named={'difference','ratio','percent_change','log_return','cagr','annual_log_growth'}\n        if 'output_scale' in inputs:raise ValueError('output_scale is unsupported; specify output_percent explicitly')\n        if op in named:\n            if 'values' in inputs:raise ValueError('This operation requires named operands, not positional values')\n            if op=='difference':\n                raw=[inputs['from_value'],inputs['to_value']]\n                if type(inputs['absolute']) is not bool:raise ValueError('absolute must be explicit boolean')\n                formula='abs(to_value-from_value)' if inputs['absolute'] else 'to_value-from_value'\n                direction='absolute' if inputs['absolute'] else 'to_minus_from'\n            elif op=='ratio':\n                raw=[inputs['denominator'],inputs['numerator']];formula='numerator/denominator';direction='numerator_over_denominator'\n            else:\n                raw=[inputs['base_value'],inputs['new_value']];direction='base_to_new'\n                formula={'percent_change':'(new_value-base_value)/base_value','log_return':'ln(new_value/base_value)',\n                         'cagr':'exp(ln(new_value/base_value)/periods)-1',\n                         'annual_log_growth':'ln(new_value/base_value)/periods'}[op]\n        else:raw=inputs['values']\n        if not isinstance(raw,list) or not raw or len(raw)>5000:raise ValueError('1..5000 values required')\n        if any(type(v) not in (str,int,float) for v in raw):raise ValueError('numeric strings/numbers required')\n        with localcontext() as context:\n            context.prec=50\n            x=[Decimal(str(v)) for v in raw]\n            if any(not v.is_finite() for v in x):raise ValueError('nonfinite operand')\n            n=Decimal(len(x));mean=sum(x)/n;convention=op\n            if op=='sum':v=sum(x)\n            elif op=='mean':v=mean\n            elif op=='symmetric_difference':\n                if len(x)!=2:raise ValueError('values must be [first,second]')\n                v=abs(x[1]-x[0])/((abs(x[0])+abs(x[1]))/2)\n                formula='abs(second-first)/((abs(first)+abs(second))/2)';direction='absolute_symmetric'\n            elif op=='share_difference':\n                if len(x)!=4:raise ValueError('values must be [first_part,first_total,second_part,second_total]')\n                if type(inputs.get('absolute')) is not bool:raise ValueError('absolute must be explicit boolean')\n                v=x[2]/x[3]-x[0]/x[1]\n                formula='second_part/second_total-first_part/first_total';direction='second_share_minus_first_share'\n                if inputs['absolute']:v=abs(v);formula='abs('+formula+')';direction='absolute_share_difference'\n            elif op=='median':\n                a=sorted(x);mid=len(a)//2;v=a[mid] if len(a)%2 else (a[mid-1]+a[mid])/2\n            elif op in {'difference','ratio','percent_change','log_return','cagr','annual_log_growth'}:\n                if len(x)!=2:raise ValueError('exactly two values in [start,end] order required')\n                a,b=x\n                if op=='difference':v=abs(b-a) if inputs['absolute'] else b-a\n                elif op=='ratio':v=b/a\n                elif op=='percent_change':v=(b-a)/a\n                else:\n                    if a<=0 or b<=0:raise ValueError('growth operands must be positive')\n                    ratio=b/a\n                    if op=='log_return':v=ratio.ln()\n                    else:\n                        periods=Decimal(str(inputs.get('periods','0')))\n                        if periods<=0:raise ValueError('positive elapsed interval count required, not observation count')\n                        v=ratio.ln()/periods if op=='annual_log_growth' else (ratio.ln()/periods).exp()-1\n            elif op in {'std_population','std_sample','variance_population','variance_sample'}:\n                denominator=n-(1 if op.endswith('sample') else 0)\n                if denominator<=0:raise ValueError('sample requires at least two observations')\n                v=sum((a-mean)**2 for a in x)/denominator\n                if op.startswith('std_'):v=v.sqrt()\n            elif op in {'gini_population','gini_sample_adjusted'}:\n                if min(x)<0 or sum(x)<=0:raise ValueError('Gini requires nonnegative values and positive sum')\n                a=sorted(x);v=sum(Decimal(2*i-len(a)-1)*z for i,z in enumerate(a,1))/(n*sum(a))\n                if op=='gini_sample_adjusted':\n                    if n<=1:raise ValueError('sample correction requires n>1')\n                    v=v*n/(n-1)\n            elif op in {'correlation','ols_slope','ols_intercept'}:\n                raw_y=inputs.get('other_values',[])\n                if len(raw_y)!=len(x) or len(x)<2:raise ValueError('paired x/y arrays of equal length required')\n                y=[Decimal(str(z)) for z in raw_y]\n                if any(not z.is_finite() for z in y):raise ValueError('nonfinite y')\n                my=sum(y)/n;sxx=sum((a-mean)**2 for a in x);sxy=sum((a-mean)*(b-my) for a,b in zip(x,y))\n                if sxx==0:raise ValueError('zero x variance')\n                slope=sxy/sxx\n                if op=='ols_slope':v=slope\n                elif op=='ols_intercept':v=my-slope*mean\n                else:\n                    syy=sum((b-my)**2 for b in y)\n                    if syy==0:raise ValueError('zero y variance')\n                    v=sxy/(sxx*syy).sqrt()\n            elif op=='geometric_growth':\n                if any(1+a<=0 for a in x):raise ValueError('growth factors must be positive')\n                v=(sum((1+a).ln() for a in x)/n).exp()-1\n            else:raise ValueError('unsupported named operation')\n            percent=inputs.get('output_percent',False)\n            if type(percent) is not bool:raise ValueError('output_percent must be boolean')\n            if percent:\n                if op not in {'ratio','percent_change','cagr','geometric_growth','symmetric_difference','share_difference'}:raise ValueError('percent output is not supported for this operation')\n                v*=100;formula='100*('+formula+')'\n            digits=inputs.get('decimals')\n            if digits is not None:\n                if type(digits) is not int or not 0<=digits<=18:raise ValueError('decimals must be 0..18')\n                answer=format(v.quantize(Decimal(1).scaleb(-digits),rounding=ROUND_HALF_UP),'.'+str(digits)+'f')\n            else:answer=format(v,'f').rstrip('0').rstrip('.') if '.' in format(v,'f') else format(v,'f')\n            if answer in ('-0',''):answer='0'\n            return {'status':'ok','outputs':{'value':str(v),'answer':answer,'formula':formula,'direction':direction,\n                'operand_refs':inputs.get('operand_refs',[]),'periods':str(inputs.get('periods','not_applicable')),\n                'unit':inputs['unit'],'output_percent':percent,'proof_scope':'local_computation_only',\n                'convention':convention,'count':len(x)}}\n    except (KeyError,ValueError,TypeError,ArithmeticError) as e:return {'status':'needs_input','outputs':{},'detail':str(e)}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "annual_log_growth"
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decimals": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "result_id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "integer"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "result_id",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "output_percent": {
+            "const": false
+          },
+          "base_value": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "new_value": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "periods": {
+            "type": [
+              "number",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "operation",
+          "unit",
+          "decimals",
+          "output_percent",
+          "base_value",
+          "new_value",
+          "periods"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          },
+          "formula": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "periods": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "proof_scope": {
+            "type": "string"
+          },
+          "convention": {
+            "type": "string"
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "result_id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "integer"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "result_id",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "output_percent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "value",
+          "answer",
+          "formula",
+          "direction",
+          "operand_refs",
+          "periods",
+          "unit",
+          "proof_scope",
+          "convention",
+          "count",
+          "output_percent"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "calculation_program",
+        "description": "Typed arithmetic on already acquired operands",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "id": "program_a34b47f71aa20d32980a8ad2575092a9ad941d9e25ea1856a4e98d077096243b",
+      "source_file": "../office_humanstrong_v2/programs/series_metrics.py",
+      "title": "Continuously compounded annual growth; local computation only",
+      "operation": "annual_log_growth"
+    },
+    {
+      "source": "\"\"\"Named formulas with explicit conventions; computation, not operand provenance.\"\"\"\nimport math\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef run(ctx,inputs):\n    try:\n        op=inputs['operation'];direction='as_supplied';formula=op\n        named={'difference','ratio','percent_change','log_return','cagr','annual_log_growth'}\n        if 'output_scale' in inputs:raise ValueError('output_scale is unsupported; specify output_percent explicitly')\n        if op in named:\n            if 'values' in inputs:raise ValueError('This operation requires named operands, not positional values')\n            if op=='difference':\n                raw=[inputs['from_value'],inputs['to_value']]\n                if type(inputs['absolute']) is not bool:raise ValueError('absolute must be explicit boolean')\n                formula='abs(to_value-from_value)' if inputs['absolute'] else 'to_value-from_value'\n                direction='absolute' if inputs['absolute'] else 'to_minus_from'\n            elif op=='ratio':\n                raw=[inputs['denominator'],inputs['numerator']];formula='numerator/denominator';direction='numerator_over_denominator'\n            else:\n                raw=[inputs['base_value'],inputs['new_value']];direction='base_to_new'\n                formula={'percent_change':'(new_value-base_value)/base_value','log_return':'ln(new_value/base_value)',\n                         'cagr':'exp(ln(new_value/base_value)/periods)-1',\n                         'annual_log_growth':'ln(new_value/base_value)/periods'}[op]\n        else:raw=inputs['values']\n        if not isinstance(raw,list) or not raw or len(raw)>5000:raise ValueError('1..5000 values required')\n        if any(type(v) not in (str,int,float) for v in raw):raise ValueError('numeric strings/numbers required')\n        with localcontext() as context:\n            context.prec=50\n            x=[Decimal(str(v)) for v in raw]\n            if any(not v.is_finite() for v in x):raise ValueError('nonfinite operand')\n            n=Decimal(len(x));mean=sum(x)/n;convention=op\n            if op=='sum':v=sum(x)\n            elif op=='mean':v=mean\n            elif op=='symmetric_difference':\n                if len(x)!=2:raise ValueError('values must be [first,second]')\n                v=abs(x[1]-x[0])/((abs(x[0])+abs(x[1]))/2)\n                formula='abs(second-first)/((abs(first)+abs(second))/2)';direction='absolute_symmetric'\n            elif op=='share_difference':\n                if len(x)!=4:raise ValueError('values must be [first_part,first_total,second_part,second_total]')\n                if type(inputs.get('absolute')) is not bool:raise ValueError('absolute must be explicit boolean')\n                v=x[2]/x[3]-x[0]/x[1]\n                formula='second_part/second_total-first_part/first_total';direction='second_share_minus_first_share'\n                if inputs['absolute']:v=abs(v);formula='abs('+formula+')';direction='absolute_share_difference'\n            elif op=='median':\n                a=sorted(x);mid=len(a)//2;v=a[mid] if len(a)%2 else (a[mid-1]+a[mid])/2\n            elif op in {'difference','ratio','percent_change','log_return','cagr','annual_log_growth'}:\n                if len(x)!=2:raise ValueError('exactly two values in [start,end] order required')\n                a,b=x\n                if op=='difference':v=abs(b-a) if inputs['absolute'] else b-a\n                elif op=='ratio':v=b/a\n                elif op=='percent_change':v=(b-a)/a\n                else:\n                    if a<=0 or b<=0:raise ValueError('growth operands must be positive')\n                    ratio=b/a\n                    if op=='log_return':v=ratio.ln()\n                    else:\n                        periods=Decimal(str(inputs.get('periods','0')))\n                        if periods<=0:raise ValueError('positive elapsed interval count required, not observation count')\n                        v=ratio.ln()/periods if op=='annual_log_growth' else (ratio.ln()/periods).exp()-1\n            elif op in {'std_population','std_sample','variance_population','variance_sample'}:\n                denominator=n-(1 if op.endswith('sample') else 0)\n                if denominator<=0:raise ValueError('sample requires at least two observations')\n                v=sum((a-mean)**2 for a in x)/denominator\n                if op.startswith('std_'):v=v.sqrt()\n            elif op in {'gini_population','gini_sample_adjusted'}:\n                if min(x)<0 or sum(x)<=0:raise ValueError('Gini requires nonnegative values and positive sum')\n                a=sorted(x);v=sum(Decimal(2*i-len(a)-1)*z for i,z in enumerate(a,1))/(n*sum(a))\n                if op=='gini_sample_adjusted':\n                    if n<=1:raise ValueError('sample correction requires n>1')\n                    v=v*n/(n-1)\n            elif op in {'correlation','ols_slope','ols_intercept'}:\n                raw_y=inputs.get('other_values',[])\n                if len(raw_y)!=len(x) or len(x)<2:raise ValueError('paired x/y arrays of equal length required')\n                y=[Decimal(str(z)) for z in raw_y]\n                if any(not z.is_finite() for z in y):raise ValueError('nonfinite y')\n                my=sum(y)/n;sxx=sum((a-mean)**2 for a in x);sxy=sum((a-mean)*(b-my) for a,b in zip(x,y))\n                if sxx==0:raise ValueError('zero x variance')\n                slope=sxy/sxx\n                if op=='ols_slope':v=slope\n                elif op=='ols_intercept':v=my-slope*mean\n                else:\n                    syy=sum((b-my)**2 for b in y)\n                    if syy==0:raise ValueError('zero y variance')\n                    v=sxy/(sxx*syy).sqrt()\n            elif op=='geometric_growth':\n                if any(1+a<=0 for a in x):raise ValueError('growth factors must be positive')\n                v=(sum((1+a).ln() for a in x)/n).exp()-1\n            else:raise ValueError('unsupported named operation')\n            percent=inputs.get('output_percent',False)\n            if type(percent) is not bool:raise ValueError('output_percent must be boolean')\n            if percent:\n                if op not in {'ratio','percent_change','cagr','geometric_growth','symmetric_difference','share_difference'}:raise ValueError('percent output is not supported for this operation')\n                v*=100;formula='100*('+formula+')'\n            digits=inputs.get('decimals')\n            if digits is not None:\n                if type(digits) is not int or not 0<=digits<=18:raise ValueError('decimals must be 0..18')\n                answer=format(v.quantize(Decimal(1).scaleb(-digits),rounding=ROUND_HALF_UP),'.'+str(digits)+'f')\n            else:answer=format(v,'f').rstrip('0').rstrip('.') if '.' in format(v,'f') else format(v,'f')\n            if answer in ('-0',''):answer='0'\n            return {'status':'ok','outputs':{'value':str(v),'answer':answer,'formula':formula,'direction':direction,\n                'operand_refs':inputs.get('operand_refs',[]),'periods':str(inputs.get('periods','not_applicable')),\n                'unit':inputs['unit'],'output_percent':percent,'proof_scope':'local_computation_only',\n                'convention':convention,'count':len(x)}}\n    except (KeyError,ValueError,TypeError,ArithmeticError) as e:return {'status':'needs_input','outputs':{},'detail':str(e)}\n",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "cagr"
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decimals": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "result_id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "integer"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "result_id",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "output_percent": {
+            "type": "boolean"
+          },
+          "base_value": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "new_value": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "periods": {
+            "type": [
+              "number",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "operation",
+          "unit",
+          "decimals",
+          "output_percent",
+          "base_value",
+          "new_value",
+          "periods"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          },
+          "formula": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "periods": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "proof_scope": {
+            "type": "string"
+          },
+          "convention": {
+            "type": "string"
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "result_id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "string",
+                      "integer"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "result_id",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "output_percent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "value",
+          "answer",
+          "formula",
+          "direction",
+          "operand_refs",
+          "periods",
+          "unit",
+          "proof_scope",
+          "convention",
+          "count",
+          "output_percent"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "entry_constraints": {
+        "selector": "calculation_program",
+        "description": "Typed arithmetic on already acquired operands",
+        "proof_scope": "local_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "id": "program_8638450a90e1c2942aab1dbb5fd6ae5eb43dc8db426f2136d23e7e33a59b9dbd",
+      "source_file": "../office_humanstrong_v2/programs/series_metrics.py",
+      "title": "Compound annual growth; local computation only",
+      "operation": "cagr"
+    }
+  ],
+  "implementation": [
+    {
+      "kind": "implementation",
+      "skill_id": "skill_9350d774672c80fd4ccb3612900bd04537919c7628c8cdf264d59638858f6641",
+      "program_id": "program_d9e84df89f61c3bffe7687d42fc5d0ca88e632e184512966809db6f166712ae0",
+      "goal": "Dimensionless midpoint-normalized difference",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "id": "implementation_b07698cbbce293d579908bbf9b5260786df67d4ed0175b9d8b3fff00400b07b4"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_a8d3d5a23e9bbdc0e84494a4ac6e3e67ac46abbcffa655a3598f4dbdee84a067",
+      "program_id": "program_ba8c4422a65a82f42233b29fcc3b413e9743f275307bdbc18b5e80304ebce0e6",
+      "goal": "Statistics on exactly the requested observations",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "id": "implementation_6d4f43bf01843f1f676f9a4c66f558a9e1465b074b07ea77318b2f466f2b0ec2"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_1197d896e0880b4d8bca00aef34a8bd6543ebeb99b2a9c64fdb8c7cefa7b3160",
+      "program_id": "program_a34b47f71aa20d32980a8ad2575092a9ad941d9e25ea1856a4e98d077096243b",
+      "goal": "Continuously compounded annual growth",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "id": "implementation_35708c05063fdd83e3c0606698a2492afecd0cf77efb2e1126dab2bac90820b0"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_92eb85b5451419ee31c6f13922462eddbf37851ec950e8e99ab2d2cc5949cd54",
+      "program_id": "program_8638450a90e1c2942aab1dbb5fd6ae5eb43dc8db426f2136d23e7e33a59b9dbd",
+      "goal": "Compound annual growth",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.scoped.v10.20261021",
+      "id": "implementation_c905382d27b0bafdd371dd124c5657a0216b152927ae2a854207a8efcf6bc45f"
+    }
+  ],
+  "workflow": [],
+  "parent_bank_digest": "3d77840aab0e3008b8b0d8b63660a8f4f007b512edcd0c5594c2963923993337"
+}
