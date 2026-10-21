@@ -15,6 +15,10 @@ PACKAGE = common.SOURCE/'resources/office_humanstrong_v6'
 VERSION = 'office.humanstrong.v6.internal-val24-pairs.20261021'
 TASK_CAP = 216576
 CUMULATIVE_CAP = 190000000
+AUTHORIZATION = ('2026-10-21 user requested implementing the proposed Bank revision and launching related experiments. '
+    'Use the previously approved cumulative 190M ceiling for one fresh V6 Bank/NoSkill Val24 pair. '
+    'Local Val matched by ID was previously approved for internal checks. '
+    'Retain all historical charges and unknown reservations. No Train split, Test or automatic repeats.')
 
 
 def bind_runner():
@@ -116,10 +120,7 @@ def prepare(root, base, resources, config_run):
     plan = {'created_at': common.utc(), 'code': code, 'method_version': VERSION,
         'package_identity': common.package_identity(), 'base_run': str(base),
         'inference_config_source': str(config_run), 'resources': str(resources),
-        'authorization': '2026-10-21 user requested implementing the proposed Bank revision and launching related experiments. '
-            'Use the previously approved cumulative 190M ceiling for one fresh V6 Bank/NoSkill Val24 pair. '
-            'Local Val matched by ID was previously approved for internal checks. '
-            'Retain all historical charges and unknown reservations. No Train split, Test or automatic repeats.',
+        'authorization': AUTHORIZATION,
         'selection': 'all 24 canonical Val members in canonical order; seed42 fixes paired arm order',
         'development_exposed': True, 'prior_scores_used_for_selection': False,
         'comparison_caveat': 'Internal local Val, with source hints and corpus retrieval but no supplied external page bodies. '
