@@ -19,9 +19,9 @@ def main():
     parser.add_argument('--single-node-crop', action='store_true', help='One manual Skill with only optional image inspection')
     parser.add_argument('--guidance-role', choices=['user', 'system'], default='user',
                         help='Single-node ablation: where the complete manual Skill is delivered')
-    parser.add_argument('--evidence-interface', choices=['legacy', 'scoped', 'compact'], default='legacy',
+    parser.add_argument('--evidence-interface', choices=['legacy', 'scoped', 'compact', 'typed'], default='legacy',
                         help='Single-node crop submission: raw result IDs or supplied image handles')
-    parser.add_argument('--skill-revision', choices=['v6', 'v7', 'v8'], default='v6',
+    parser.add_argument('--skill-revision', choices=['v6', 'v7', 'v8', 'v9'], default='v6',
                         help='Manual single-node Skill to import into a fresh Bank')
     parser.add_argument('--principles', default='', help='Comma-separated v8 principle IDs; empty selects only the core')
     parser.add_argument('--resume', action='store_true')
@@ -30,12 +30,16 @@ def main():
     args.single_node = args.single_node or args.single_node_crop
     if not args.single_node and args.guidance_role != 'user':
         parser.error('--guidance-role applies only to single-node evaluation')
-    if args.evidence_interface != 'legacy' and not args.single_node_crop:
+    if args.evidence_interface not in ('legacy', 'typed') and not args.single_node_crop:
         parser.error('--evidence-interface requires --single-node-crop')
     if args.skill_revision != 'v6' and (not args.single_node or args.bank):
         parser.error('--skill-revision selects a fresh single-node Bank; omit --bank')
     if args.principles and (args.skill_revision != 'v8' or args.bank):
         parser.error('--principles requires a fresh v8 Bank')
+    if args.skill_revision == 'v9' and args.evidence_interface != 'typed':
+        parser.error('v9 requires --evidence-interface typed')
+    if args.evidence_interface == 'typed' and not args.single_node:
+        parser.error('Typed submission requires single-node evaluation')
     repo, root, campaign = map(lambda x: Path(x).resolve(), (args.repo,args.output,args.campaign))
     sys.path.insert(0,str(repo/'src'))
     sys.path.insert(0,str(repo/'experiments/docvqa_human_bank/integration'))
@@ -107,6 +111,10 @@ def main():
         if manual['method_version']!=METHOD:raise ValueError('Bank/view version differs')
         if args.single_node:
             config['experiment']['docvqa_human_reference']['skill_revision'] = manual.get('skill_revision', 'v6')
+            if (manual.get('skill_revision') == 'v9') != (args.evidence_interface == 'typed'):
+                raise ValueError('Typed submission and v9 Bank must be selected together')
+            if manual.get('typed_submission'):
+                config['experiment']['docvqa_human_reference']['programs'] = 'typed_final_answer_and_optional_crop'
             if manual.get('skill_revision') == 'v8':
                 config['experiment']['docvqa_human_reference']['principle_ids'] = manual['principle_ids']
         if args.single_node and manual['program_status']!=('optional_image_crop' if args.single_node_crop else 'disabled'):
