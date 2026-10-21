@@ -56,7 +56,7 @@ def settled_parent(base):
 
 
 def prepare(root, base, resources, config_run, *, split='val', selector=None,
-            parent_reports=('comparison.json','billing_result.json')):
+            parent_reports=('comparison.json','billing_result.json'), comparison_arms=('off','manual')):
     root, base, resources, config_run = [Path(p).resolve() for p in (root, base, resources, config_run)]
     if root.exists():
         raise ValueError('Use a fresh independent directory')
@@ -91,7 +91,10 @@ def prepare(root, base, resources, config_run, *, split='val', selector=None,
             raise ValueError('Selection changed a public task')
         tasks = selected
         selection_note = selection_receipt['rule']
-    token_cap = len(tasks)*2*TASK_CAP
+    if (len(comparison_arms)<2 or len(set(comparison_arms))!=len(comparison_arms) or 'off' not in comparison_arms or
+            any(not name.isidentifier() for name in comparison_arms)):
+        raise ValueError('Unique named comparison arms including off are required')
+    token_cap = len(tasks)*len(comparison_arms)*TASK_CAP
     if used+token_cap > CUMULATIVE_CAP:
         raise ValueError('Insufficient cumulative authority')
     cfg = configuration.configure(common.read(config_run/'base_config.json'), resources, split)
@@ -99,7 +102,7 @@ def prepare(root, base, resources, config_run, *, split='val', selector=None,
     assert cfg['llm']['runtime']['max_total_tokens_per_task'] == TASK_CAP
     assert cfg['experiment']['office_human_bank_version'] == common.frontier.VERSION
     decisions = max(16, cfg['runtime']['global_action_budget']*4+16)
-    http_cap = len(tasks)*2*(decisions*2+1)*(cfg['llm']['max_retries']+1)
+    http_cap = len(tasks)*len(comparison_arms)*(decisions*2+1)*(cfg['llm']['max_retries']+1)
     cfg['experiment'].update(runtime_mode='frozen', seed=42, output_dir=str(root), observation_version=VERSION)
     cfg['data_dir'] = str(root/'episodes')
     root.mkdir(parents=True)
@@ -115,7 +118,7 @@ def prepare(root, base, resources, config_run, *, split='val', selector=None,
     bundle = common.read(PACKAGE/'bank/bank.json')
     episodes, rng = [], random.Random(42)
     for i, task in enumerate(tasks):
-        arms = ['off', 'manual']
+        arms = list(comparison_arms)
         rng.shuffle(arms)
         for arm in arms:
             out = root/'episodes'/f"{i+1:03}_{task['task_id'].split(':')[-1]}"/arm
@@ -145,7 +148,7 @@ def prepare(root, base, resources, config_run, *, split='val', selector=None,
             'Not a blind or naturally learned Ours result.',
         'input_alignment': manifest['val_policy'] if split == 'val' else cfg['experiment']['input_alignment'],
         'test_runs_authorized_in_this_plan': 2 if split == 'test' else 0,
-        'seed': 42, 'episodes': episodes,
+        'seed': 42, 'episodes': episodes, 'comparison_arms':list(comparison_arms),
         'corpus_identity': common.read(config_run/'plan.json')['corpus_identity'],
         'protected_files': {str(p): common.sha(p) for p in protected}, 'ledger_limits': limits,
         'authorized_cumulative_ceiling': CUMULATIVE_CAP, 'inherited_used_or_reserved': used,
