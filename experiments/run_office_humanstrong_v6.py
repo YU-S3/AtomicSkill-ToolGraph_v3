@@ -55,7 +55,8 @@ def settled_parent(base):
     return plan, ledger, sorted(locks)
 
 
-def prepare(root, base, resources, config_run, *, split='val', selector=None):
+def prepare(root, base, resources, config_run, *, split='val', selector=None,
+            parent_reports=('comparison.json','billing_result.json')):
     root, base, resources, config_run = [Path(p).resolve() for p in (root, base, resources, config_run)]
     if root.exists():
         raise ValueError('Use a fresh independent directory')
@@ -126,7 +127,7 @@ def prepare(root, base, resources, config_run, *, split='val', selector=None):
             episodes.append({'task_id': task['task_id'], 'arm': arm, 'path': str(out),
                 'config_hash': common.sha(out/'config.json'), 'bank_identity': common.tree_identity(out/'bank')})
     protected = [base/'budget.json', base/'plan.json', base/'launch_status.json',
-        base/'comparison.json', base/'billing_result.json', config_run/'base_config.json',
+        *[base/name for name in parent_reports], config_run/'base_config.json',
         config_run/'plan.json', resources/'manifest.json', canonical_path, root/'tasks.json',
         root/'base_config.json', root/'budget_prefix.json']
     protected += [resources/name for name in manifest['files']]
