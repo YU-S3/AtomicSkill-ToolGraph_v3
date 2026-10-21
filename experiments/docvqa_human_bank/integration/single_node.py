@@ -30,11 +30,12 @@ def row_context(task, output):
     raise ValueError('Verified crop source is unavailable')
 
 
-def prepare(repo, config_path, destination, *, crop=False):
+def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6'):
     from atomic_skillgraph.empirical.bank import Bank
     from atomic_skillgraph.empirical.contracts import digest, program_digest
     config = json.loads(Path(config_path).read_text())
-    source = json.loads((ROOT / 'bank/single_node.json').read_text())
+    sources = {'v6': 'single_node.json', 'v7': 'single_node_v7.json'}
+    source = json.loads((ROOT / 'bank' / sources[skill_revision]).read_text())
     output = Path(destination)
     if output.exists():
         raise ValueError('Fresh destination required')
@@ -54,7 +55,8 @@ def prepare(repo, config_path, destination, *, crop=False):
         manifest = {'method_version': METHOD, 'origin': 'human_authored_only_not_learned',
             'bank_digest': bank.digest(), 'source_bundle_hash': digest(source),
             'counts': {k: len(bank.all(k)) for k in ('skill', 'program', 'implementation', 'workflow')},
-            'program_status': 'optional_image_crop' if crop else 'disabled', 'seed': 42}
+            'program_status': 'optional_image_crop' if crop else 'disabled', 'seed': 42,
+            'skill_revision': skill_revision}
         (output / 'manual_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         (output / 'imported_bank.json').write_text(json.dumps(
             {k: bank.all(k) for k in manifest['counts']}, indent=2) + '\n')
@@ -95,10 +97,12 @@ class SingleNodeDocVQAView:
 
 
 @contextmanager
-def single_node_bridge(*, guidance_role='user'):
+def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
     """Keep production metering/checkpoints/scoring; expose only the image and Skill."""
     if guidance_role not in ('user', 'system'):
         raise ValueError('guidance_role must be user or system')
+    if evidence_interface not in ('legacy', 'scoped'):
+        raise ValueError('Unknown evidence interface')
     from atomic_skillgraph.empirical.system import EmpiricalSystem
     old = EmpiricalSystem.agent
 
@@ -144,6 +148,25 @@ def single_node_bridge(*, guidance_role='user'):
                         break
                     material['content_parts'].append(context.pop('part'))
                     evidence['row_context'] = {**context, 'image_index': len(material['content_parts']) - 1}
+                # Selectable evidence handles are issued only for images actually delivered.
+                # A page/tile label is never a Program result ID.
+                sources = {'page': None}
+                if evidence_interface == 'scoped':
+                    material['answer_sources'] = [{'handle': 'page', 'kind': 'original_page'}]
+                    for index, evidence in enumerate(material.get('crop_evidence', []), 1):
+                        handle = f'crop_{index}'
+                        sources[handle] = evidence.pop('result_id')
+                        evidence['source_handle'] = handle
+                        material['answer_sources'].append({'handle': handle,
+                            'kind': 'verified_program_crop',
+                            'image_index': evidence['image_index']})
+                        if 'row_context' in evidence:
+                            context_handle = f'row_{index}'
+                            sources[context_handle] = None
+                            evidence['row_context']['source_handle'] = context_handle
+                            material['answer_sources'].append({'handle': context_handle,
+                                'kind': 'host_derived_row_context_not_program_output',
+                                'image_index': evidence['row_context']['image_index']})
                 if answer_step and materials['remaining_local_executions'] > 0:
                     schema = {'type': 'object', 'properties': {
                         'action': {'type': 'string', 'enum': ['inspect', 'finish']},
@@ -159,6 +182,13 @@ def single_node_bridge(*, guidance_role='user'):
                              'then': {'required': ['tile']}},
                             {'if': {'properties': {'action': {'const': 'finish'}}},
                              'then': {'required': ['evidence_text', 'answer_kind', 'answer']}}]}
+                    if evidence_interface == 'scoped':
+                        del schema['properties']['used_results']
+                        schema['properties']['evidence_sources'] = {
+                            'type': 'array', 'items': {'type': 'string', 'enum': list(sources)},
+                            'minItems': 1, 'uniqueItems': True,
+                            'description': 'Select only supplied answer_sources handles: page for the original image, crop_N for an actual Program crop, row_N for its host-derived context. Tile names are inspect locations, never source handles.'}
+                        schema['allOf'][1]['then']['required'].append('evidence_sources')
                     prompt += (' For small print, handwriting or ambiguous characters affecting the answer, '
                         'inspect the tile containing the field before committing to a reading. '
                         'Return exactly one answer_step call per response, with one action; never parallel calls. '
@@ -174,14 +204,27 @@ def single_node_bridge(*, guidance_role='user'):
                         'Otherwise answer directly. At most two inspections; no mandatory second pass. '
                         'For finish, copy the supporting field/row into evidence_text, select answer_kind, '
                         'then put ONLY the requested constituent in answer, without introductory prose. '
-                        'The evidence transcription is your reading, not independently verified OCR. '
+                        'The evidence transcription is your reading, not independently verified OCR. ')
+                    prompt += ('For finish, select evidence_sources from answer_sources. The original page is page; '
+                        'crop_N and row_N are available only after a successful inspection. A1/B2/etc. select where to inspect, '
+                        'not evidence provenance. Never invent a handle or copy a tile into evidence_sources.'
+                        if evidence_interface == 'scoped' else
                         'Use actual used_results when a crop supports the answer.')
                     material['remaining_inspections'] = materials['remaining_local_executions']
-                    step = old(s, stage, prompt, material, name, schema, **kwargs)
+                    step = deepcopy(old(s, stage, prompt, material, name, schema, **kwargs))
                     if step['action'] == 'inspect':
                         return {'action': 'call_program', 'name': s.bank.programs['image_region']['id'],
                             'arguments': {'image_path': '/workspace/inputs/image_0.png',
                                 'bbox': TILES[step['tile']], 'max_edge': 1600}}
+                    if evidence_interface == 'scoped':
+                        # Schema validation already rejects unknown handles; do not drop invalid
+                        # references or infer consumption from execution alone.
+                        selected = step.pop('evidence_sources', [])  # Plain-text finish claims no usage.
+                        step['used_results'] = [sources[k] for k in selected
+                                                if sources[k] is not None]
+                        s.requests[-1]['evidence_binding'] = {'version': 'scoped_image_sources.v1',
+                            'available': sources, 'selected': selected, 'used_results': step['used_results']}
+                        s._save_requests()
                     return step
             answer = old(s, stage, prompt, material, None if answer_step else name, None, **kwargs)
             return {'action': 'finish', 'answer': answer or ''} if answer_step else answer

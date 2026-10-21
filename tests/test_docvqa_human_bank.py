@@ -126,7 +126,9 @@ def test_single_node_delivers_one_skill_and_original_image_without_tools(importe
 
 
 @pytest.mark.parametrize('finish_reserved', [False, True])
-def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, monkeypatch, finish_reserved):
+@pytest.mark.parametrize('evidence_interface,finish_sources', [
+    ('legacy', []), ('scoped', ['crop_1', 'row_1']), ('scoped', ['row_1'])])
+def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, monkeypatch, finish_reserved, evidence_interface, finish_sources):
     c, _ = imported
     c['data_dir'] = str(tmp_path / 'crop_bank')
     config_path = tmp_path / 'crop_config.json'
@@ -140,7 +142,8 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
     finish = response(content='74216', finish='stop') if finish_reserved else response([{
         'action': 'finish', 'evidence_text': 'Account: 74216', 'answer_kind': 'identifier',
-        'answer': '74216'}], name='answer_step')
+        'answer': '74216', **({'evidence_sources': finish_sources}
+                            if evidence_interface == 'scoped' else {})}], name='answer_step')
     sent = http(monkeypatch, [response([{'action': 'inspect', 'tile': 'B1'}], name='answer_step'), finish])
     if finish_reserved:
         from atomic_skillgraph.core.errors import BudgetExhausted
@@ -152,7 +155,8 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         monkeypatch.setattr(EmpiricalSystem, 'agent', reserve)
     try:
         before = system.bank.digest()
-        with single_node_bridge(guidance_role='system'): trace = system.run_task(task, learn=False)
+        with single_node_bridge(guidance_role='system', evidence_interface=evidence_interface):
+            trace = system.run_task(task, learn=False)
         assert trace['score']['hard'] is True
         assert len(sent) == 2 and len(sent[0]['tools']) == 1
         assert trace['execution']['internal_execution_count'] == 1
@@ -184,8 +188,52 @@ def test_single_node_optional_inspection_executes_real_crop(imported, tmp_path, 
         if not finish_reserved:
             assert 'B1' in sent[1]['tools'][0]['function']['parameters']['properties']['tile']['enum']
             assert trace['requests'][-1]['response']['tool_calls'][0]['arguments']['evidence_text'] == 'Account: 74216'
+            if evidence_interface == 'scoped':
+                assert 'used_results' not in schema['properties']
+                assert schema['properties']['evidence_sources']['items']['enum'] == ['page']
+                final_schema = sent[1]['tools'][0]['function']['parameters']
+                assert final_schema['properties']['evidence_sources']['items']['enum'] == ['page', 'crop_1', 'row_1']
+                binding = trace['requests'][-1]['evidence_binding']
+                assert binding['available']['row_1'] is None
+                consumed = 'crop_1' in finish_sources
+                assert binding['used_results'] == ([trace['execution']['attempts'][0]['result_id']] if consumed else [])
+                assert trace['execution']['attempts'][0].get('outputs_consumed', False) is consumed
+                assert 'result_id' not in material['crop_evidence'][0]
+                assert trace['requests'][-1]['response']['tool_calls'][0]['arguments']['evidence_sources'] == finish_sources
         assert not any(k in material for k in ('programs', 'workflows', 'worker_resources'))
         assert system.bank.digest() == before
+    finally:
+        system.close()
+
+
+@pytest.mark.parametrize('source', ['page', 'A2', 'crop_1', None])
+def test_scoped_original_page_never_fabricates_program_consumption(imported, tmp_path, monkeypatch, source):
+    c, _ = imported
+    c['data_dir'] = str(tmp_path / 'scoped_bank')
+    config = tmp_path / 'scoped_config.json'; config.write_text(json.dumps(c))
+    prepare_single(ROOT, config, c['data_dir'], crop=True, skill_revision='v7')
+    manifest = json.loads((Path(c['data_dir']) / 'manual_manifest.json').read_text())
+    adapter = AnswerAdapter('docvqa', {'docvqa:fixture': {'answers': ['74216']}}, c)
+    system = EmpiricalSystem(c, harness=adapter, readonly=True,
+        bank_view_factory=lambda b: SingleNodeDocVQAView(b, manifest))
+    task = PublicTask('docvqa:fixture', 'synthetic-physical', 'What is the account number?',
+        {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
+    reply = response([{'action': 'finish', 'evidence_text': 'Account: 74216',
+        'answer_kind': 'identifier', 'answer': '74216', 'evidence_sources': [source]}], name='answer_step')
+    if source is None:
+        reply = response(content='74216', finish='stop')
+    sent = http(monkeypatch, [reply])
+    try:
+        with single_node_bridge(evidence_interface='scoped'):
+            trace = system.run_task(task, learn=False)
+        assert len(sent) == 1 and trace['execution']['internal_execution_count'] == 0
+        if source in ('page', None):
+            assert trace['score']['hard'] is True
+            assert trace['requests'][-1]['evidence_binding']['used_results'] == []
+        else:
+            assert trace['score']['hard'] is False
+            assert trace['execution']['reason'] == 'runtime_model_failure'
+            assert 'evidence_binding' not in trace['requests'][-1]
     finally:
         system.close()
 

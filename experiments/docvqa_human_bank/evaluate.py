@@ -19,12 +19,20 @@ def main():
     parser.add_argument('--single-node-crop', action='store_true', help='One manual Skill with only optional image inspection')
     parser.add_argument('--guidance-role', choices=['user', 'system'], default='user',
                         help='Single-node ablation: where the complete manual Skill is delivered')
+    parser.add_argument('--evidence-interface', choices=['legacy', 'scoped'], default='legacy',
+                        help='Single-node crop submission: raw result IDs or supplied image handles')
+    parser.add_argument('--skill-revision', choices=['v6', 'v7'], default='v6',
+                        help='Manual single-node Skill to import into a fresh Bank')
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
     args.single_node = args.single_node or args.single_node_crop
     if not args.single_node and args.guidance_role != 'user':
         parser.error('--guidance-role applies only to single-node evaluation')
+    if args.evidence_interface != 'legacy' and not args.single_node_crop:
+        parser.error('--evidence-interface requires --single-node-crop')
+    if args.skill_revision != 'v6' and (not args.single_node or args.bank):
+        parser.error('--skill-revision selects a fresh single-node Bank; omit --bank')
     repo, root, campaign = map(lambda x: Path(x).resolve(), (args.repo,args.output,args.campaign))
     sys.path.insert(0,str(repo/'src'))
     sys.path.insert(0,str(repo/'experiments/docvqa_human_bank/integration'))
@@ -75,6 +83,8 @@ def main():
             'programs':'optional_image_crop' if args.single_node_crop else 'off' if args.single_node else 'auto'}
         if args.single_node:
             config['experiment']['docvqa_human_reference']['guidance_role'] = args.guidance_role
+            config['experiment']['docvqa_human_reference']['evidence_interface'] = args.evidence_interface
+            config['experiment']['docvqa_human_reference']['skill_revision'] = args.skill_revision
         config['budget'].update(limits,train_task_tokens=96000,eval_task_tokens=96000)
         config['budget'].pop('train_solve_tokens',None);config['budget'].pop('train_learning_tokens',None)
         config['program_worker']['record_execution_receipt']=True
@@ -87,9 +97,12 @@ def main():
                     from single_node import prepare
                 else:
                     from import_native import prepare
-                prepare(repo,root/'import_config.json',root/'bank',**({'crop':args.single_node_crop} if args.single_node else {}))
+                prepare(repo,root/'import_config.json',root/'bank',**({'crop':args.single_node_crop,
+                    'skill_revision':args.skill_revision} if args.single_node else {}))
         manual=json.loads((root/'bank/manual_manifest.json').read_text())
         if manual['method_version']!=METHOD:raise ValueError('Bank/view version differs')
+        if args.single_node:
+            config['experiment']['docvqa_human_reference']['skill_revision'] = manual.get('skill_revision', 'v6')
         if args.single_node and manual['program_status']!=('optional_image_crop' if args.single_node_crop else 'disabled'):
             raise ValueError('Requested crop mode differs from the frozen Bank')
         factory=lambda bank:HumanDocVQAView(bank,manual,**({} if args.bank else {'crop_mode':args.crop_mode}))
@@ -111,7 +124,8 @@ def main():
         before=tree_identity(root/'bank')['sha256']
         log.freeze(root/'bank',newly_created=not (root/'final_frozen_manifest.json').exists())
         try:
-            with image_result_bridge(**({'guidance_role': args.guidance_role} if args.single_node else {})):
+            with image_result_bridge(**({'guidance_role': args.guidance_role,
+                'evidence_interface': args.evidence_interface} if args.single_node else {})):
                 summary=run(config,tasks,root/split,readonly=True,resume=args.resume,
                     bank_view_factory=factory,formal_log=log,budget_governor=governor,
                     task_metadata={x['task_id']:x['task_metadata'] for x in canonical},freeze_on_complete=False)
