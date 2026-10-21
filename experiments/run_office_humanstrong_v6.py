@@ -156,6 +156,7 @@ def prepare(root, base, resources, config_run, *, split='val', selector=None):
         'shared_answer_contract': common.frontier.ANSWER_CONTRACT, 'locks': locks}
     if selection_receipt is not None:
         plan['selection_receipt'] = selection_receipt
+        plan['prior_scores_used_for_selection'] = bool(selection_receipt.get('prior_scores_used_for_selection', False))
     common.save_json(root/'plan.json', plan)
     common.save_json(root/'plan_identity.json', {'sha256': common.sha(root/'plan.json')})
     common.save_json(root/'cost_carryforward_manifest.json', {k: plan[k] for k in (
