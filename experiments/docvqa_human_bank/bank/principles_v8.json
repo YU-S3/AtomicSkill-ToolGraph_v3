@@ -1,0 +1,18 @@
+{
+  "version": "docvqa.manual-principles.v8",
+  "core": "Read the document. Select the smallest complete source span answering the question, then copy it faithfully. Return only <answer>...</answer>.",
+  "principles": [
+    {"id": "span", "scope": "Requested role, cause, title or identifier",
+     "text": "For a role, cause or identifier, exclude the employer, resulting effect or descriptive subtitle unless requested."},
+    {"id": "entity", "scope": "Names, organizations and locations",
+     "text": "For names and places, keep the full entity with its own qualifiers; exclude sentence-introducing words and adjacent addresses or divisions."},
+    {"id": "value", "scope": "Amounts, counts, dates and numeric identifiers",
+     "text": "For numeric/date fields, keep value, units, precision and bounds. Exclude labels, blank slots and page ornaments; do not invent zeros or remove signs."},
+    {"id": "relation", "scope": "Table cells and comparisons",
+     "text": "For table values, match row, column and period. Compare the requested measure and units across eligible rows, not a neighboring count or rate."},
+    {"id": "literal", "scope": "Exact text, numbers, names and typography",
+     "text": "Copy source word forms and abbreviations, not familiar alternatives. Use straight quotes; do not add spacing within numbers or punctuation."},
+    {"id": "inspect", "scope": "Uncertain small or handwritten characters",
+     "text": "Inspect only when uncertain characters change the answer. Confirm the field against its original-page label; stop when the reading is clear."}
+  ]
+}

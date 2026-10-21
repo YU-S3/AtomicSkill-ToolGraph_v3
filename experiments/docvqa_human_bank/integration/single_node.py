@@ -30,12 +30,18 @@ def row_context(task, output):
     raise ValueError('Verified crop source is unavailable')
 
 
-def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6'):
+def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', principle_ids=()):
     from atomic_skillgraph.empirical.bank import Bank
     from atomic_skillgraph.empirical.contracts import digest, program_digest
     config = json.loads(Path(config_path).read_text())
     sources = {'v6': 'single_node.json', 'v7': 'single_node_v7.json'}
-    source = json.loads((ROOT / 'bank' / sources[skill_revision]).read_text())
+    if skill_revision == 'v8':
+        from principles import compile_skill
+        source = compile_skill(principle_ids)
+    else:
+        if principle_ids:
+            raise ValueError('Principle selection requires v8')
+        source = json.loads((ROOT / 'bank' / sources[skill_revision]).read_text())
     output = Path(destination)
     if output.exists():
         raise ValueError('Fresh destination required')
@@ -57,6 +63,8 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6'):
             'counts': {k: len(bank.all(k)) for k in ('skill', 'program', 'implementation', 'workflow')},
             'program_status': 'optional_image_crop' if crop else 'disabled', 'seed': 42,
             'skill_revision': skill_revision}
+        if skill_revision == 'v8':
+            manifest['principle_ids'] = source['principle_ids']
         (output / 'manual_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         (output / 'imported_bank.json').write_text(json.dumps(
             {k: bank.all(k) for k in manifest['counts']}, indent=2) + '\n')
@@ -101,7 +109,7 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
     """Keep production metering/checkpoints/scoring; expose only the image and Skill."""
     if guidance_role not in ('user', 'system'):
         raise ValueError('guidance_role must be user or system')
-    if evidence_interface not in ('legacy', 'scoped'):
+    if evidence_interface not in ('legacy', 'scoped', 'compact'):
         raise ValueError('Unknown evidence interface')
     from atomic_skillgraph.empirical.system import EmpiricalSystem
     old = EmpiricalSystem.agent
@@ -151,7 +159,7 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
                 # Selectable evidence handles are issued only for images actually delivered.
                 # A page/tile label is never a Program result ID.
                 sources = {'page': None}
-                if evidence_interface == 'scoped':
+                if evidence_interface != 'legacy':
                     material['answer_sources'] = [{'handle': 'page', 'kind': 'original_page'}]
                     for index, evidence in enumerate(material.get('crop_evidence', []), 1):
                         handle = f'crop_{index}'
@@ -182,14 +190,28 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
                              'then': {'required': ['tile']}},
                             {'if': {'properties': {'action': {'const': 'finish'}}},
                              'then': {'required': ['evidence_text', 'answer_kind', 'answer']}}]}
-                    if evidence_interface == 'scoped':
+                    if evidence_interface != 'legacy':
                         del schema['properties']['used_results']
                         schema['properties']['evidence_sources'] = {
                             'type': 'array', 'items': {'type': 'string', 'enum': list(sources)},
                             'minItems': 1, 'uniqueItems': True,
                             'description': 'Select only supplied answer_sources handles: page for the original image, crop_N for an actual Program crop, row_N for its host-derived context. Tile names are inspect locations, never source handles.'}
                         schema['allOf'][1]['then']['required'].append('evidence_sources')
-                    prompt += (' For small print, handwriting or ambiguous characters affecting the answer, '
+                    if evidence_interface == 'compact':
+                        for key in ('evidence_text', 'answer_kind'):
+                            del schema['properties'][key]
+                        schema['allOf'][1]['then']['required'] = ['answer', 'evidence_sources']
+                    if evidence_interface == 'compact':
+                        prompt += (' Answer directly when clear. For uncertain detail, inspect its tile: '
+                            'A/B/C are page columns; 1/2/3/4 are rows. At most two inspections. '
+                            'Check the returned crop against the original label and row context; '
+                            'completed tiles already contain the available pixels. '
+                            'Use one answer_step call: inspect with tile, or finish with answer and '
+                            'evidence_sources from answer_sources. page is the original; crop_N is a '
+                            'Program crop; row_N is host context. Tile names are not source handles. '
+                            'An inspection locates no target and verifies no text by itself.')
+                    else:
+                        prompt += (' For small print, handwriting or ambiguous characters affecting the answer, '
                         'inspect the tile containing the field before committing to a reading. '
                         'Return exactly one answer_step call per response, with one action; never parallel calls. '
                         'Divide the ORIGINAL page into four equal rows (1 top through 4 bottom) and '
@@ -205,7 +227,8 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
                         'For finish, copy the supporting field/row into evidence_text, select answer_kind, '
                         'then put ONLY the requested constituent in answer, without introductory prose. '
                         'The evidence transcription is your reading, not independently verified OCR. ')
-                    prompt += ('For finish, select evidence_sources from answer_sources. The original page is page; '
+                    if evidence_interface != 'compact':
+                        prompt += ('For finish, select evidence_sources from answer_sources. The original page is page; '
                         'crop_N and row_N are available only after a successful inspection. A1/B2/etc. select where to inspect, '
                         'not evidence provenance. Never invent a handle or copy a tile into evidence_sources.'
                         if evidence_interface == 'scoped' else
@@ -216,7 +239,7 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
                         return {'action': 'call_program', 'name': s.bank.programs['image_region']['id'],
                             'arguments': {'image_path': '/workspace/inputs/image_0.png',
                                 'bbox': TILES[step['tile']], 'max_edge': 1600}}
-                    if evidence_interface == 'scoped':
+                    if evidence_interface != 'legacy':
                         # Schema validation already rejects unknown handles; do not drop invalid
                         # references or infer consumption from execution alone.
                         selected = step.pop('evidence_sources', [])  # Plain-text finish claims no usage.
