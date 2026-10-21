@@ -286,7 +286,7 @@ class OfficeAdapter(FileAdapter):
                     'next_cursor':{'type':['string','null']},'complete':{'type':'boolean'}},['hits','next_cursor','complete'])),
                 'read_only',True,{'offset':'unicode_codepoint_0_based'})
             self.specs['read_context']=ToolSpec('read_context',
-                'Read actual surrounding table text at a grep Unicode offset. before+after must be 1..12000 characters. Preserve headings, rows, columns and units from this text; absence is not evidence of a numeric answer.',
+                'Read table context at a grep Unicode offset (before+after: 1..12000 chars). ctx.call data.text is a plain string, never a content wrapper. Keep headers, rows and units; absence is not a numeric answer.',
                 CONTEXT_SCHEMA,result_schema(object_schema({'path':{'type':'string'},'text':{'type':'string'},
                     'start_offset':{'type':'integer'},'end_offset':{'type':'integer'},'anchor_offset':{'type':'integer'},
                     'next_offset':{'type':['integer','null']}},['path','text','start_offset','end_offset','anchor_offset','next_offset'])),
