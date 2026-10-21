@@ -21,9 +21,9 @@ def main():
                         help='Single-node ablation: where the complete manual Skill is delivered')
     parser.add_argument('--evidence-interface', choices=['legacy', 'scoped', 'compact', 'typed'], default='legacy',
                         help='Single-node crop submission: raw result IDs or supplied image handles')
-    parser.add_argument('--skill-revision', choices=['v6', 'v7', 'v8', 'v9'], default='v6',
+    parser.add_argument('--skill-revision', choices=['v6', 'v7', 'v8', 'v9', 'v10'], default='v6',
                         help='Manual single-node Skill to import into a fresh Bank')
-    parser.add_argument('--principles', default='', help='Comma-separated v8 principle IDs; empty selects only the core')
+    parser.add_argument('--principles', default='', help='Comma-separated v8/v10 rule IDs; empty selects only the core')
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
@@ -34,10 +34,10 @@ def main():
         parser.error('--evidence-interface requires --single-node-crop')
     if args.skill_revision != 'v6' and (not args.single_node or args.bank):
         parser.error('--skill-revision selects a fresh single-node Bank; omit --bank')
-    if args.principles and (args.skill_revision != 'v8' or args.bank):
-        parser.error('--principles requires a fresh v8 Bank')
-    if args.skill_revision == 'v9' and args.evidence_interface != 'typed':
-        parser.error('v9 requires --evidence-interface typed')
+    if args.principles and (args.skill_revision not in ('v8', 'v10') or args.bank):
+        parser.error('--principles requires a fresh v8/v10 Bank')
+    if args.skill_revision in ('v9', 'v10') and args.evidence_interface != 'typed':
+        parser.error('v9/v10 requires --evidence-interface typed')
     if args.evidence_interface == 'typed' and not args.single_node:
         parser.error('Typed submission requires single-node evaluation')
     repo, root, campaign = map(lambda x: Path(x).resolve(), (args.repo,args.output,args.campaign))
@@ -111,11 +111,11 @@ def main():
         if manual['method_version']!=METHOD:raise ValueError('Bank/view version differs')
         if args.single_node:
             config['experiment']['docvqa_human_reference']['skill_revision'] = manual.get('skill_revision', 'v6')
-            if (manual.get('skill_revision') == 'v9') != (args.evidence_interface == 'typed'):
-                raise ValueError('Typed submission and v9 Bank must be selected together')
+            if (manual.get('skill_revision') in ('v9', 'v10')) != (args.evidence_interface == 'typed'):
+                raise ValueError('Typed submission and matching Bank must be selected together')
             if manual.get('typed_submission'):
                 config['experiment']['docvqa_human_reference']['programs'] = 'typed_final_answer_and_optional_crop'
-            if manual.get('skill_revision') == 'v8':
+            if manual.get('skill_revision') in ('v8', 'v10'):
                 config['experiment']['docvqa_human_reference']['principle_ids'] = manual['principle_ids']
         if args.single_node and manual['program_status']!=('optional_image_crop' if args.single_node_crop else 'disabled'):
             raise ValueError('Requested crop mode differs from the frozen Bank')
