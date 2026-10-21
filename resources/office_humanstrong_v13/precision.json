@@ -1,0 +1,5 @@
+{
+  "title": "final_precision",
+  "goal": "Preserve the requested numeric display at submission",
+  "guidance": "Honor an explicit output template first. Keep exactly n decimal digits, including trailing zeros; nearest tenth/hundredth/thousandth means 1/2/3 digits. Percentage points and per-year units set the scale, not a word suffix. For percentages preserve the requested % or bare-number form. Do not simplify a correctly formatted computed string or append unrequested words."
+}

@@ -1,0 +1,138 @@
+[
+  {
+    "title": "share_difference",
+    "when": "(?:more|less|difference).*?(?:percentage|percent|share) of (?:the )?total",
+    "goal": "Difference of shares",
+    "guidance": "For two categories sharing one total: (first-second)/total. A decimal answer keeps that fraction; percent multiplies by 100 once. Do not confuse this with relative growth over the second category.",
+    "operation": "share_difference"
+  },
+  {
+    "title": "decimal_scale",
+    "when": "(?:as|in) (?:a )?decimal",
+    "goal": "Decimal output scale",
+    "guidance": "A decimal ratio is the fraction, not the percentage number: 25%=0.25. Preserve the unrounded fraction; round only after the requested scale is fixed."
+  },
+  {
+    "title": "polynomial_fit",
+    "when": "polynomial|quadratic regression|degree [2-5]",
+    "goal": "Complete source series before polynomial forecasting",
+    "guidance": "Fit only the specified observations with an intercept; keep the target actual outside the fit. Use all required months. A polynomial of degree d needs at least d+1 distinct x values.",
+    "operation": "polynomial"
+  },
+  {
+    "title": "difference_value",
+    "when": "by how much|absolute difference|how much.*increase",
+    "goal": "Source-bound subtraction",
+    "guidance": "Subtract matching categories and units: signed change is new minus old; absolute difference takes abs only when requested.",
+    "operation": "difference"
+  },
+  {
+    "title": "rolling_range",
+    "when": "moving averages|rolling average",
+    "goal": "Rolling statistic over the full requested scope",
+    "guidance": "Keep months in order and years in separate groups. Compute each full rolling window, then pooled max minus min across the requested groups. Do not report a min-to-max interval.",
+    "operation": "statistics"
+  },
+  {
+    "title": "normalized_midpoint",
+    "when": "mid[ -]?point.normalized difference",
+    "goal": "Submit a midpoint-normalized decimal",
+    "guidance": "Midpoint-normalized difference is abs(b-a)/((abs(a)+abs(b))/2). Keep the decimal fraction unless a percent conversion is explicitly requested.",
+    "operation": "symmetric_difference"
+  },
+  {
+    "title": "compound_growth",
+    "when": "compound annual|\\bCAGR\\b|annualized compound",
+    "goal": "Source-bound compound growth and final percent display",
+    "guidance": "CAGR=(end/start)^(1/elapsed_years)-1. Count intervals, not rows. Percent per year means multiply by 100 once and display %; do not round endpoints.",
+    "operation": "cagr"
+  },
+  {
+    "title": "annual_log",
+    "when": "contin(?:u)?ous(?:ly)?.*?(?:rate|annual|growth|change)|(?:annualized|annual).*?log",
+    "goal": "Source-bound annual log growth",
+    "guidance": "Continuous relative change is ln(end/start). Divide by elapsed years only for an annualized rate; otherwise use one interval. It is not an absolute currency difference.",
+    "operation": "annual_log_growth"
+  },
+  {
+    "title": "absolute_deviation",
+    "when": "mean of the absolute differences|mean absolute deviation|average absolute deviation",
+    "goal": "Absolute deviation from the stated benchmark",
+    "guidance": "Average absolute deviation from a benchmark is mean(abs(value-benchmark)); retain all requested dates. Percentage-point inputs stay at that magnitude; a unit of measure need not be a suffix.",
+    "operation": "deviation"
+  },
+  {
+    "title": "dispersion",
+    "when": "standard deviation|\\bvariance\\b",
+    "goal": "Select the statistical population before calculation",
+    "guidance": "For all stated years use population divisor n. Use n-1 only for an explicitly requested sample estimate. Do not change the convention after computing.",
+    "operation": "statistics"
+  },
+  {
+    "title": "regression_coordinates",
+    "when": "linear regression|linear trend|\\bOLS\\b",
+    "goal": "Source-bound linear fit and signed forecast error",
+    "guidance": "Fit the requested years only, in the stated t coordinates. Keep forecast_x and its actual value outside fitting periods. Preserve the requested forecast-minus-actual sign.",
+    "operation": "statistics"
+  },
+  {
+    "title": "paired_series",
+    "when": "correlation|correlat",
+    "goal": "Evidence-backed paired series",
+    "guidance": "Pair both observed series by the same period and adjustment basis. Do not fill a missing external series from memory. A correlation needs both actual series.",
+    "operation": "statistics"
+  },
+  {
+    "title": "series_scope",
+    "when": "arithmetic mean|geometric mean",
+    "goal": "Mean over exactly the requested periods",
+    "guidance": "Use exactly the requested periods and category for a mean. Preserve blank columns; exclude adjacent totals, duplicated months and forecast observations.",
+    "operation": "statistics"
+  },
+  {
+    "title": "log_trim",
+    "when": "trimmed mean",
+    "goal": "Logarithm and trimming order",
+    "guidance": "Apply the requested logarithm first, sort, remove floor(n*proportion) values per tail, then average the retained values. Take the total column, not a financing component.",
+    "operation": "statistics"
+  },
+  {
+    "title": "median_deviation",
+    "when": "dev[i]?ation from the median",
+    "goal": "Deviation from median",
+    "guidance": "Compute the median of the complete selected series, then average absolute distances from that median. Verify revisions before fixing the series.",
+    "operation": "statistics"
+  },
+  {
+    "title": "theil",
+    "when": "Theil index",
+    "goal": "Theil T definition",
+    "guidance": "For positive observations, Theil T is mean((x/mean(x))*ln(x/mean(x))). Round the computed result normally; do not truncate to fit an expected-looking value.",
+    "operation": "statistics"
+  },
+  {
+    "title": "revision_basis",
+    "when": "$^",
+    "goal": "Choose the matching revision before binding cells",
+    "guidance": "For an overlapping historical observation, compare later retrospective tables before choosing the value. Honor an explicit as-of release first; otherwise use the latest same-definition revision."
+  },
+  {
+    "title": "total_scope",
+    "when": "$^",
+    "goal": "Totals across continued panels",
+    "guidance": "A total may be in the continued panel; do not substitute its largest component. Reporting in dollars does not restrict a category to dollar-denominated assets."
+  },
+  {
+    "title": "table_groups",
+    "when": "$^",
+    "goal": "Faithful cells in grouped tables",
+    "guidance": "Count blank cells as columns. Read the full year/category header above a repeated month. Bind the exact row in that group, not the first matching month elsewhere."
+  },
+  {
+    "title": "typed_submission",
+    "when": "$^",
+    "goal": "Scale-preserving final submission",
+    "guidance": "For a final native Python quantity, emit JSON answer={value:unrounded_number,scale:quantity|fraction|percent|percentage_points,unit:literal_unit}. Copy its published quantity_ref to typed_scalar; choose output scale explicitly. Otherwise finish normally.",
+    "operation": "typed_scalar"
+  }
+]

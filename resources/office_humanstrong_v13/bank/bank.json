@@ -1,0 +1,662 @@
+{
+  "schema": "human.frontier.bank.v1",
+  "benchmark": "officeqa",
+  "method_version": "office.humanstrong.final-display.v13.20261022",
+  "seed": 42,
+  "asset_origin": "external_human_edited_reference_not_learned_ours",
+  "admission": {
+    "learning_provenance": false,
+    "train_transfer_gate": false,
+    "utility_promotion": false
+  },
+  "input_protocol": "office.external-minimax.public-pages.v1",
+  "default_workflow_id": null,
+  "workflow_runtime": "stored_reference_only_native_dynamic_runtime",
+  "measured_performance": null,
+  "status": "development_candidate_not_accepted",
+  "source_basis": "V12 development observations: correct values lost final precision; bulky source selectors caused retries.",
+  "skill": [
+    {
+      "kind": "skill",
+      "title": "share_difference",
+      "goal": "Difference of shares",
+      "guidance": "For two categories sharing one total: (first-second)/total. A decimal answer keeps that fraction; percent multiplies by 100 once. Do not confuse this with relative growth over the second category.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_8aeeeb1764b2d7e6bf89a753e8bfb2f02c5a9a2cc1c6497f5fe0214a42241db9"
+    },
+    {
+      "kind": "skill",
+      "title": "decimal_scale",
+      "goal": "Decimal output scale",
+      "guidance": "A decimal ratio is the fraction, not the percentage number: 25%=0.25. Preserve the unrounded fraction; round only after the requested scale is fixed.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_677c7f244a2fac3a089301976019c5ad0f8348495e368621589783b7b5f8068f"
+    },
+    {
+      "kind": "skill",
+      "title": "polynomial_fit",
+      "goal": "Complete source series before polynomial forecasting",
+      "guidance": "Fit only the specified observations with an intercept; keep the target actual outside the fit. Use all required months. A polynomial of degree d needs at least d+1 distinct x values.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_26ef8e64a1a7854bd6ad05c81e175aa560c5346e18626fd24dde6a5ead600487"
+    },
+    {
+      "kind": "skill",
+      "title": "difference_value",
+      "goal": "Source-bound subtraction",
+      "guidance": "Subtract matching categories and units: signed change is new minus old; absolute difference takes abs only when requested.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_7b74c532abfb9efcd2947c39fe93ea5d46ba93d06034e4dd2748b1b9a3e9e8e0"
+    },
+    {
+      "kind": "skill",
+      "title": "rolling_range",
+      "goal": "Rolling statistic over the full requested scope",
+      "guidance": "Keep months in order and years in separate groups. Compute each full rolling window, then pooled max minus min across the requested groups. Do not report a min-to-max interval.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_41db7824a8606cd50b9248da0a1c973c3b21ea2666a062df37d6ae3a56eeb3d2"
+    },
+    {
+      "kind": "skill",
+      "title": "normalized_midpoint",
+      "goal": "Submit a midpoint-normalized decimal",
+      "guidance": "Midpoint-normalized difference is abs(b-a)/((abs(a)+abs(b))/2). Keep the decimal fraction unless a percent conversion is explicitly requested.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_f0d1c9de43ceb83425360ed137c38004fc0ff9f181cc55c23adde65d1750ff22"
+    },
+    {
+      "kind": "skill",
+      "title": "compound_growth",
+      "goal": "Source-bound compound growth and final percent display",
+      "guidance": "CAGR=(end/start)^(1/elapsed_years)-1. Count intervals, not rows. Percent per year means multiply by 100 once and display %; do not round endpoints.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_4fca1bacf7122e0359c3430cac532eed0cf922fba20d64851509d09966984aa5"
+    },
+    {
+      "kind": "skill",
+      "title": "annual_log",
+      "goal": "Source-bound annual log growth",
+      "guidance": "Continuous relative change is ln(end/start). Divide by elapsed years only for an annualized rate; otherwise use one interval. It is not an absolute currency difference.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_e3012d36e6b22eb878bb848348f8c77cdbdee1fe520d1214a95f4f2b099f7cb0"
+    },
+    {
+      "kind": "skill",
+      "title": "absolute_deviation",
+      "goal": "Absolute deviation from the stated benchmark",
+      "guidance": "Average absolute deviation from a benchmark is mean(abs(value-benchmark)); retain all requested dates. Percentage-point inputs stay at that magnitude; a unit of measure need not be a suffix.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_7c186b32c1c10fe9fc47d9932649537d2397b1ebe7fa22caa32ff1ff69b6b8e3"
+    },
+    {
+      "kind": "skill",
+      "title": "dispersion",
+      "goal": "Select the statistical population before calculation",
+      "guidance": "For all stated years use population divisor n. Use n-1 only for an explicitly requested sample estimate. Do not change the convention after computing.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_26678037d0fb31ce4c42b60ae3d4ef51370f5031618d414a47d890ad21333eb4"
+    },
+    {
+      "kind": "skill",
+      "title": "regression_coordinates",
+      "goal": "Source-bound linear fit and signed forecast error",
+      "guidance": "Fit the requested years only, in the stated t coordinates. Keep forecast_x and its actual value outside fitting periods. Preserve the requested forecast-minus-actual sign.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_85d9c98522493a9d168befccfe95e353d2a221f968c6955b7bdf2a4384e84b35"
+    },
+    {
+      "kind": "skill",
+      "title": "paired_series",
+      "goal": "Evidence-backed paired series",
+      "guidance": "Pair both observed series by the same period and adjustment basis. Do not fill a missing external series from memory. A correlation needs both actual series.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_073fc760080108f073c5fd0cffac4e988458882bb9fa61a265c8d2be383f422f"
+    },
+    {
+      "kind": "skill",
+      "title": "series_scope",
+      "goal": "Mean over exactly the requested periods",
+      "guidance": "Use exactly the requested periods and category for a mean. Preserve blank columns; exclude adjacent totals, duplicated months and forecast observations.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_b2fa4ee4d44f6eb3516204dda531d414aa921fe0f273a2720912e1d06fc95905"
+    },
+    {
+      "kind": "skill",
+      "title": "log_trim",
+      "goal": "Logarithm and trimming order",
+      "guidance": "Apply the requested logarithm first, sort, remove floor(n*proportion) values per tail, then average the retained values. Take the total column, not a financing component.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_ddb780e90b28321e97d3c645f40d86f78be292dae0f8e4a36073ddad8713c71e"
+    },
+    {
+      "kind": "skill",
+      "title": "median_deviation",
+      "goal": "Deviation from median",
+      "guidance": "Compute the median of the complete selected series, then average absolute distances from that median. Verify revisions before fixing the series.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_55d2c943c9061b35cd7270f027408c8b241c1b3a850d21d9af60d0bc4e9a456c"
+    },
+    {
+      "kind": "skill",
+      "title": "theil",
+      "goal": "Theil T definition",
+      "guidance": "For positive observations, Theil T is mean((x/mean(x))*ln(x/mean(x))). Round the computed result normally; do not truncate to fit an expected-looking value.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_bd1eb82b586ba13315ed054327f43d001101f970d49378fd906250f7bcb24ccb"
+    },
+    {
+      "kind": "skill",
+      "title": "revision_basis",
+      "goal": "Choose the matching revision before binding cells",
+      "guidance": "For an overlapping historical observation, compare later retrospective tables before choosing the value. Honor an explicit as-of release first; otherwise use the latest same-definition revision.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_8717ff0e6ce7f2c5c2ad231663018797940eac28b1094a4d23b7c462d9613b0b"
+    },
+    {
+      "kind": "skill",
+      "title": "total_scope",
+      "goal": "Totals across continued panels",
+      "guidance": "A total may be in the continued panel; do not substitute its largest component. Reporting in dollars does not restrict a category to dollar-denominated assets.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_71c047a3dbd9a60a1ef3eca149e42812c6b98ed740bad6d471fa2b17f072790b"
+    },
+    {
+      "kind": "skill",
+      "title": "table_groups",
+      "goal": "Faithful cells in grouped tables",
+      "guidance": "Count blank cells as columns. Read the full year/category header above a repeated month. Bind the exact row in that group, not the first matching month elsewhere.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_3ce1b68f3f92921f08d282ac4a32ee4b3954b0cedeba50e1dda2a0cdba2404ba"
+    },
+    {
+      "kind": "skill",
+      "title": "final_precision",
+      "goal": "Preserve the requested numeric display at submission",
+      "guidance": "Honor an explicit output template first. Keep exactly n decimal digits, including trailing zeros; nearest tenth/hundredth/thousandth means 1/2/3 digits. Percentage points and per-year units set the scale, not a word suffix. For percentages preserve the requested % or bare-number form. Do not simplify a correctly formatted computed string or append unrequested words.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "skill_a33e654cd42b9eaf1fe548acb1dee2c3db0617df9fa1816b15f3a9970790301f"
+    }
+  ],
+  "program": [
+    {
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "final_answer",
+      "entry_constraints": {
+        "selector": "acquired_numeric_leaf",
+        "description": "Caller explicitly declares source and output scales",
+        "proof_scope": "numeric_conversion_and_display_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "title": "Submit an acquired final scalar with explicit scale and exact decimal display",
+      "source_file": "programs/scalar_display.py",
+      "source": "\"\"\"Convert an acquired, typed quantity once; round only for final display.\"\"\"\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef render(value, source_scale, output_scale, style, decimals, unit, suffix=None):\n    scales={'quantity','fraction','percent','percentage_points'}\n    if source_scale not in scales or output_scale not in scales:\n        raise ValueError('Explicit known source/output scale required')\n    if type(value) not in (str,int,float) or type(decimals) is not int or not 0<=decimals<=18:\n        raise ValueError('Numeric value and decimals 0..18 required')\n    if not isinstance(unit,str) or not unit.strip():raise ValueError('Source unit required')\n    if style not in ('number','percent','unit_suffix'):raise ValueError('Explicit display required')\n    if style=='percent' and output_scale!='percent':raise ValueError('Percent symbol requires percent scale')\n    if style=='unit_suffix' and (suffix!=unit or '%' in suffix):\n        raise ValueError('Suffix must equal the acquired unit; percent uses percent style')\n    if style!='unit_suffix' and suffix is not None:raise ValueError('Unexpected suffix')\n    with localcontext() as precision:\n        precision.prec=60;number=Decimal(str(value))\n        if not number.is_finite():raise ValueError('Finite unrounded value required')\n        if source_scale!=output_scale:\n            if source_scale in ('percent','percentage_points') and output_scale=='fraction':number/=100\n            elif source_scale=='fraction' and output_scale in ('percent','percentage_points'):number*=100\n            else:raise ValueError('Unsupported unit/scale conversion; calculate explicitly first')\n        number=number.quantize(Decimal(1).scaleb(-decimals),rounding=ROUND_HALF_UP)\n        if not number:number=abs(number)\n        answer=format(number,f'.{decimals}f')\n    return answer+('%' if style=='percent' else ' '+suffix if style=='unit_suffix' else '')\n\n\ndef run(ctx,inputs):\n    try:\n        if inputs['submit_answer'] is not True:raise ValueError('Explicit final submission required')\n        ref=inputs['value_ref']\n        result=ctx.call('read_result',{**ref,'offset':0,'limit':256})\n        if not result.get('accepted') or result.get('next_offset') is not None:\n            raise ValueError('Use one complete acquired numeric value_ref')\n        value=result['data'];fmt=inputs['format']\n        answer=render(value,inputs['source_scale'],fmt['output_scale'],fmt['style'],fmt['decimals'],\n                      inputs['unit'],fmt.get('suffix'))\n        return {'status':'ok','outputs':{'answer':answer,'value':str(value),'format':fmt,\n            'source_scale':inputs['source_scale'],'unit':inputs['unit'],'evidence':[{'source_ref':ref}],\n            'proof_scope':'Exact acquired scalar and explicit caller-declared scales; conversion/rounding only, not semantic validation.'}}\n    except (KeyError,TypeError,ValueError,ArithmeticError) as error:\n        return {'status':'needs_input','outputs':{},'detail':str(error)}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "submit_answer": {
+            "const": true
+          },
+          "value_ref": {
+            "type": "object",
+            "properties": {
+              "result_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "result_id",
+              "path"
+            ],
+            "additionalProperties": false
+          },
+          "source_scale": {
+            "enum": [
+              "quantity",
+              "fraction",
+              "percent",
+              "percentage_points"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "format": {
+            "type": "object",
+            "properties": {
+              "output_scale": {
+                "enum": [
+                  "quantity",
+                  "fraction",
+                  "percent",
+                  "percentage_points"
+                ]
+              },
+              "style": {
+                "enum": [
+                  "number",
+                  "percent",
+                  "unit_suffix"
+                ]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              },
+              "suffix": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "output_scale",
+              "style",
+              "decimals"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "submit_answer",
+          "value_ref",
+          "source_scale",
+          "unit",
+          "format"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1
+          },
+          "format": {
+            "type": "object"
+          },
+          "source_scale": {
+            "type": "string",
+            "minLength": 1
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence": {
+            "type": "array"
+          },
+          "proof_scope": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "answer",
+          "value",
+          "format",
+          "source_scale",
+          "unit",
+          "evidence",
+          "proof_scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [
+        "read_result"
+      ],
+      "id": "program_4862c0d57bd09e0849cd5ceb18aa74d73672a56829443d39d9df4925c741fe44",
+      "operation": "scalar_display"
+    }
+  ],
+  "implementation": [
+    {
+      "kind": "implementation",
+      "skill_id": "skill_a33e654cd42b9eaf1fe548acb1dee2c3db0617df9fa1816b15f3a9970790301f",
+      "program_id": "program_4862c0d57bd09e0849cd5ceb18aa74d73672a56829443d39d9df4925c741fe44",
+      "goal": "Preserve the requested numeric display at submission",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.final-display.v13.20261022",
+      "id": "implementation_178f45f2c6bccf2f81b7051a7a3ea44231fbd2b57d8df4f809c9e21cafa719ba"
+    }
+  ],
+  "workflow": [],
+  "parent_bank_digest": "40c14a1658e75371ea0e5ae5d76ff97d43160aa1886a1b01b76e644611bf38aa",
+  "profiles": {
+    "off": "No active Bank assets",
+    "rules": "Frozen V12 short-rule control, native tools only",
+    "precise": "Same short rules plus final numeric-display atom, including finish-only",
+    "display": "Precise plus one scalar finalizer after an acquired numeric result exists"
+  }
+}
