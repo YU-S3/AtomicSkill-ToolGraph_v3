@@ -262,7 +262,8 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
                         'not evidence provenance. Never invent a handle or copy a tile into evidence_sources.'
                         if evidence_interface == 'scoped' else
                         'Use actual used_results when a crop supports the answer.')
-                    material['remaining_inspections'] = materials['remaining_local_executions']
+                    material['remaining_inspections'] = (int(can_inspect) if evidence_interface == 'typed'
+                                                         else materials['remaining_local_executions'])
                     step = deepcopy(old(s, stage, prompt, material, name, schema, **kwargs))
                     if step['action'] == 'inspect':
                         return {'action': 'call_program', 'name': s.bank.programs['image_region']['id'],
