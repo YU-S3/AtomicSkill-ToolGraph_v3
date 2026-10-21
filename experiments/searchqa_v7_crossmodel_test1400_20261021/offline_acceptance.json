@@ -1,0 +1,102 @@
+{
+  "passed": true,
+  "real_http": 0,
+  "source": {
+    "git_sha": "a4b96eedda9dc920afe4b7105b9e37f93cc931e8",
+    "tracked_dirty": false,
+    "source_sha256": "b6d3b0d87e55afdbfd5696c06beec04b73122b0773db0f218278839b7008e072"
+  },
+  "checks": [
+    {
+      "model": "kimi_k26",
+      "mode": "normal",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_kimi_k26_normal_pyleikcj"
+    },
+    {
+      "model": "kimi_k26",
+      "mode": "refusal_metered",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_kimi_k26_refusal_metered_uicospsh"
+    },
+    {
+      "model": "kimi_k26",
+      "mode": "refusal_unknown",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_kimi_k26_refusal_unknown_bnr08mdi"
+    },
+    {
+      "model": "kimi_k26",
+      "mode": "broken_stream",
+      "passed": true,
+      "intercepted_requests": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_kimi_k26_broken_stream_v9ev847m"
+    },
+    {
+      "model": "kimi_k26",
+      "mode": "missing_usage",
+      "passed": true,
+      "intercepted_requests": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_kimi_k26_missing_usage_3j6fmc71"
+    },
+    {
+      "model": "glm53_flash",
+      "mode": "normal",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_glm53_flash_normal_fcw3go8l"
+    },
+    {
+      "model": "glm53_flash",
+      "mode": "refusal_metered",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_glm53_flash_refusal_metered_npi_j6sy"
+    },
+    {
+      "model": "glm53_flash",
+      "mode": "refusal_unknown",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_glm53_flash_refusal_unknown_l365p6mm"
+    },
+    {
+      "model": "glm53_flash",
+      "mode": "broken_stream",
+      "passed": true,
+      "intercepted_requests": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_glm53_flash_broken_stream_whu5ixei"
+    },
+    {
+      "model": "glm53_flash",
+      "mode": "missing_usage",
+      "passed": true,
+      "intercepted_requests": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_glm53_flash_missing_usage_99rn7o28"
+    }
+  ],
+  "driver_sha256": "dc3b2cd187fcb34fcb361877914c99cc1c670c0ea174f02faeaa8bcac696f805",
+  "launcher_sha256": "596dd33d5770f62972371cdb449faef94baf56ddfac0042afa036577cf6237ca",
+  "test_sha256": "73162c3e8f2530809777641213531812544ee2d746946b73feaaa0b17e1194e9",
+  "same_v7_messages_and_full_public_context": true,
+  "canonical_payloads_checked": 2800,
+  "maximum_prompt_bound_plus_completion": 78235,
+  "native_docker_program_and_official_score_verified": true,
+  "completed_resume_adds_no_calls": true,
+  "explicit_refusals_scored_once": true,
+  "unknown_usage_not_fabricated": true,
+  "broken_stream_and_missing_usage_stop_before_score": true
+}

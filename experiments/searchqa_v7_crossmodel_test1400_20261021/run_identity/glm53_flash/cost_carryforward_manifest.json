@@ -1,0 +1,23 @@
+{
+  "parent": {
+    "path": "/home/yangchengyu/searchqa_glm53_v2_v7_test1400_seed42_refusal_resume_20261020",
+    "budget_sha256": "fc7a9ab6e165f4ce841ad49ff342902125ac3ad0c41c1a962a83d4a2021d1d02",
+    "limits": {
+      "token_limit": 19469227,
+      "request_limit": 6103,
+      "finish_reserve": 0
+    }
+  },
+  "historical_charged_tokens": 10840779,
+  "historical_http": 2903,
+  "allocation": {
+    "tokens": 8000000,
+    "http": 3000
+  },
+  "limits": {
+    "token_limit": 18840779,
+    "request_limit": 5903,
+    "finish_reserve": 0
+  },
+  "accounting": "Separate model ledger. GLM inherits its completed SearchQA lineage once, including unknown-usage reservations. Kimi starts its first SearchQA ledger; unrelated LiveMath/DocVQA ledgers remain separate and unchanged."
+}

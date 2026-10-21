@@ -1,0 +1,91 @@
+{
+  "passed": true,
+  "stage": "fulltest1400",
+  "tasks": 1400,
+  "arms": [
+    "v7_text_compiler"
+  ],
+  "at": "2026-10-21T09:01:08.191137+00:00",
+  "real_http": 0,
+  "same_v7_bank": true,
+  "same_public_input_order": true,
+  "same_runtime_and_scorer": true,
+  "no_completed_tasks_inherited": true,
+  "config": {
+    "purpose_overrides": {
+      "finish_only": {
+        "protocol": {
+          "thinking_type": "enabled"
+        },
+        "reasoning_effort": "high",
+        "max_completion_tokens": 16384
+      },
+      "learning_structure_repair": {
+        "protocol": {
+          "thinking_type": "disabled"
+        },
+        "max_completion_tokens": 2048
+      }
+    },
+    "provider": "openai_compatible",
+    "dialect": "glm_53_chat",
+    "base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "model": "glm-5.3-flash",
+    "api_key_env": "ZHIPU_API_KEY",
+    "max_retries": 0,
+    "protocol": {
+      "thinking_type": "enabled"
+    },
+    "planner": {
+      "reasoning_effort": "high",
+      "max_completion_tokens": 8192,
+      "request_timeout_seconds": 300,
+      "max_total_tokens_per_phase": 120000
+    },
+    "runtime": {
+      "reasoning_effort": "high",
+      "max_completion_tokens": 65536,
+      "request_timeout_seconds": 600,
+      "max_total_tokens_per_task": 128000
+    },
+    "extractor": {
+      "reasoning_effort": "high",
+      "max_completion_tokens": 8192,
+      "request_timeout_seconds": 600,
+      "max_total_tokens_per_task": 262144
+    },
+    "tool_builder": {
+      "reasoning_effort": "high",
+      "max_completion_tokens": 16384,
+      "request_timeout_seconds": 300
+    },
+    "display_name": "glm-5.3-flash",
+    "input_modalities": [
+      "text"
+    ],
+    "token_limit_field": "max_tokens",
+    "generation_seed_supported": false,
+    "reasoning_effort": "high",
+    "capability_profile": {
+      "tools": true,
+      "thinking": true,
+      "reasoning_effort": true,
+      "generation_seed": false
+    },
+    "stream": true,
+    "purpose_protocols": {
+      "runtime": {
+        "thinking_type": "enabled",
+        "reasoning_effort": "high"
+      },
+      "finish": {
+        "thinking_type": "enabled",
+        "reasoning_effort": "high"
+      },
+      "learning": {
+        "thinking_type": "enabled",
+        "reasoning_effort": "high"
+      }
+    }
+  }
+}

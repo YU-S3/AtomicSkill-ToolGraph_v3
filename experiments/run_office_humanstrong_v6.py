@@ -15,6 +15,10 @@ PACKAGE = common.SOURCE/'resources/office_humanstrong_v6'
 VERSION = 'office.humanstrong.v6.internal-val24-pairs.20261021'
 TASK_CAP = 216576
 CUMULATIVE_CAP = 190000000
+AUTHORIZATION = ('2026-10-21 user requested implementing the proposed Bank revision and launching related experiments. '
+    'Use the previously approved cumulative 190M ceiling for one fresh V6 Bank/NoSkill Val24 pair. '
+    'Local Val matched by ID was previously approved for internal checks. '
+    'Retain all historical charges and unknown reservations. No Train split, Test or automatic repeats.')
 
 
 def bind_runner():
@@ -51,7 +55,7 @@ def settled_parent(base):
     return plan, ledger, sorted(locks)
 
 
-def prepare(root, base, resources, config_run):
+def prepare(root, base, resources, config_run, *, split='val', selector=None):
     root, base, resources, config_run = [Path(p).resolve() for p in (root, base, resources, config_run)]
     if root.exists():
         raise ValueError('Use a fresh independent directory')
@@ -62,21 +66,34 @@ def prepare(root, base, resources, config_run):
     used = sum(map(common.charge, ledger['attempts'].values()))
     configuration = load('office_v6_paired_config', PACKAGE/'integration/configuration.py')
     resources, manifest = configuration.verify_resources(resources)
-    tasks = common.read(resources/'val.json')['tasks']
-    canonical_path = common.SOURCE/'data/main_experiment_v1/officeqa/val.json'
+    if split not in ('val', 'test') or (split != 'val' and selector is None):
+        raise ValueError('A Test development observation requires an explicit selector')
+    tasks = common.read(resources/(split+'.json'))['tasks']
+    canonical_path = common.SOURCE/'data/main_experiment_v1/officeqa'/f'{split}.json'
     canonical = common.read(canonical_path)['tasks']
-    if len(tasks) != 24 or any(t['split'] != 'val' for t in tasks):
-        raise ValueError('All 24 Val tasks required')
+    if len(tasks) != (24 if split == 'val' else 102) or any(t['split'] != split for t in tasks):
+        raise ValueError('Complete canonical split required before selection')
     if [t['task_id'] for t in tasks] != [t['task_id'] for t in canonical]:
-        raise ValueError('Val membership/order changed')
+        raise ValueError('Canonical membership/order changed')
     if {t['task_id'] for t in tasks} & {
-            t['task_id'] for split in ('train', 'test')
-            for t in common.read(resources/(split+'.json'))['tasks']}:
-        raise ValueError('Val overlaps Train/Test')
+            t['task_id'] for other in ('train', 'val', 'test') if other != split
+            for t in common.read(resources/(other+'.json'))['tasks']}:
+        raise ValueError('Canonical splits overlap')
+    selection_note = 'all 24 canonical Val members in canonical order; seed42 fixes paired arm order'
+    selection_receipt = None
+    if selector:
+        selected, selection_receipt = selector(deepcopy(tasks))
+        by_id = {t['task_id']: t for t in tasks}
+        if not selected or len({t['task_id'] for t in selected}) != len(selected):
+            raise ValueError('Nonempty unique selection required')
+        if any(t != by_id.get(t['task_id']) for t in selected):
+            raise ValueError('Selection changed a public task')
+        tasks = selected
+        selection_note = selection_receipt['rule']
     token_cap = len(tasks)*2*TASK_CAP
     if used+token_cap > CUMULATIVE_CAP:
         raise ValueError('Insufficient cumulative authority')
-    cfg = configuration.configure(common.read(config_run/'base_config.json'), resources, 'val')
+    cfg = configuration.configure(common.read(config_run/'base_config.json'), resources, split)
     assert cfg['runtime']['global_action_budget'] == 48
     assert cfg['llm']['runtime']['max_total_tokens_per_task'] == TASK_CAP
     assert cfg['experiment']['office_human_bank_version'] == common.frontier.VERSION
@@ -116,18 +133,17 @@ def prepare(root, base, resources, config_run):
     plan = {'created_at': common.utc(), 'code': code, 'method_version': VERSION,
         'package_identity': common.package_identity(), 'base_run': str(base),
         'inference_config_source': str(config_run), 'resources': str(resources),
-        'authorization': '2026-10-21 user requested implementing the proposed Bank revision and launching related experiments. '
-            'Use the previously approved cumulative 190M ceiling for one fresh V6 Bank/NoSkill Val24 pair. '
-            'Local Val matched by ID was previously approved for internal checks. '
-            'Retain all historical charges and unknown reservations. No Train split, Test or automatic repeats.',
-        'selection': 'all 24 canonical Val members in canonical order; seed42 fixes paired arm order',
+        'authorization': AUTHORIZATION,
+        'selection': selection_note,
         'development_exposed': True, 'prior_scores_used_for_selection': False,
-        'comparison_caveat': 'Internal local Val, with source hints and corpus retrieval but no supplied external page bodies. '
+        'comparison_caveat': ('Internal local Val, with source hints and corpus retrieval but no supplied external page bodies. '
+            if split == 'val' else 'Selected, development-exposed Test tasks with approved external public pages. '
+            'Results may guide Bank selection and are not independent final Test estimates. ')+
             'This does not establish external full-public-page Test parity or paper performance. Human-authored reference Bank. '
             'Both fresh arms share public input, scorer, native tools, task budget and output contract. '
             'Not a blind or naturally learned Ours result.',
-        'input_alignment': manifest['val_policy'],
-        'test_runs_authorized_in_this_plan': 0,
+        'input_alignment': manifest['val_policy'] if split == 'val' else cfg['experiment']['input_alignment'],
+        'test_runs_authorized_in_this_plan': 0 if split == 'val' else 2,
         'seed': 42, 'episodes': episodes,
         'corpus_identity': common.read(config_run/'plan.json')['corpus_identity'],
         'protected_files': {str(p): common.sha(p) for p in protected}, 'ledger_limits': limits,
@@ -138,6 +154,8 @@ def prepare(root, base, resources, config_run):
         'asset_origin': 'human_authored_reference_not_learned_ours',
         'workflow_execution_mode': 'native_dynamic_tool_loop_with_explicit_final_program_submission',
         'shared_answer_contract': common.frontier.ANSWER_CONTRACT, 'locks': locks}
+    if selection_receipt is not None:
+        plan['selection_receipt'] = selection_receipt
     common.save_json(root/'plan.json', plan)
     common.save_json(root/'plan_identity.json', {'sha256': common.sha(root/'plan.json')})
     common.save_json(root/'cost_carryforward_manifest.json', {k: plan[k] for k in (
