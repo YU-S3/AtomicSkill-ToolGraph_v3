@@ -259,6 +259,63 @@ def test_principle_sets_are_explicit_and_compact():
         with pytest.raises(ValueError): compile_skill(invalid)
 
 
+@pytest.mark.parametrize('kind,value,expected,inspect', [
+    ('phone', '+44 1234 567890', '+441234567890', False),
+    ('page', '- 27 -', '27', False),
+    ('count', 'N=18', '18', True),
+    ('count', 'Recommendation No. 6', 'Recommendation No. 6', False),
+    ('verbatim', 'The A.B. Company -5.00 kg', 'The A.B. Company -5.00 kg', False),
+])
+def test_typed_final_submission_preserves_selected_value(imported, tmp_path, monkeypatch, kind, value, expected, inspect):
+    c, _ = imported
+    c['data_dir'] = str(tmp_path / 'typed_bank')
+    config = tmp_path / 'typed_config.json'; config.write_text(json.dumps(c))
+    prepare_single(ROOT, config, c['data_dir'], crop=True, skill_revision='v9')
+    manifest = json.loads((Path(c['data_dir']) / 'manual_manifest.json').read_text())
+    adapter = AnswerAdapter('docvqa', {'docvqa:fixture': {'answers': [expected]}}, c)
+    system = EmpiricalSystem(c, harness=adapter, readonly=True,
+        bank_view_factory=lambda b: SingleNodeDocVQAView(b, manifest))
+    task = PublicTask('docvqa:fixture', 'synthetic-physical', 'How many accounts are listed?',
+        {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
+    reply = response([{'action': 'finish', 'answer': value, 'answer_kind': kind,
+        'evidence_sources': ['crop_1'] if inspect else ['page']}], name='answer_step')
+    replies = ([response([{'action': 'inspect', 'tile': 'B1'}], name='answer_step')] if inspect else []) + [reply]
+    sent = http(monkeypatch, replies)
+    try:
+        before = system.bank.digest()
+        with single_node_bridge(guidance_role='system', evidence_interface='typed'):
+            trace = system.run_task(task, learn=False)
+        assert trace['execution']['prediction'] == expected and trace['score']['hard']
+        assert len(sent) == 1 + int(inspect)  # No model turn after Program submission.
+        for index, payload in enumerate(sent):
+            material = json.loads(next(p['text'] for p in payload['messages'][1]['content'] if p['type'] == 'text'))
+            assert material['remaining_inspections'] == 1 - index
+        attempts = trace['execution']['attempts']
+        assert len(attempts) == int(inspect) + int(kind != 'verbatim') <= 2
+        assert system.bank.digest() == before
+        raw = trace['requests'][-1]['response']['tool_calls'][0]['arguments']
+        assert raw['answer'] == value  # Original model response is never rewritten.
+        if kind != 'verbatim':
+            assert trace['execution']['reason'] == 'program_submitted'
+            assert trace['execution']['submission_producer_attempt_id'] == attempts[-1]['id']
+            assert attempts[-1]['submission_by_program'] and attempts[-1]['outputs_consumed']
+            result = system.task_context.results[attempts[-1]['result_id']]
+            assert result['execution_receipt'] and result['outputs']['original'] == value
+            assert result['outputs']['format_applied'] == (value != expected)
+        if inspect:
+            assert attempts[0]['outputs_consumed']
+            assert sent[1]['tools'][0]['function']['parameters']['properties']['action']['enum'] == ['finish']
+        selected = system.bank.retrieve_guidance(task.goal)
+        assert [a['principle_id'] for a in selected] == ['core', 'quantity']
+        assert all(a['guidance'] in sent[0]['messages'][0]['content'] for a in selected)
+        assert len('\n'.join(a['guidance'] for a in selected)) < 900
+        assert [a['principle_id'] for a in system.bank.retrieve_guidance('Who received the highest amount?')] == ['core', 'comparison']
+        assert [a['principle_id'] for a in system.bank.retrieve_guidance('What is her title?')] == ['core', 'title']
+        assert [a['principle_id'] for a in system.bank.retrieve_guidance('Why did this happen?')] == ['core']
+    finally:
+        system.close()
+
+
 def test_real_worker_programs_and_crop_wire(imported, monkeypatch):
     c, manifest = imported
     adapter = AnswerAdapter('docvqa', {'docvqa:fixture': {'answers': ['74216']}}, c)

@@ -1,4 +1,4 @@
-"""One immutable manual Skill; optional source-image crop, no graph routing."""
+"""Immutable manual guidance with optional inspection and typed submission."""
 from contextlib import contextmanager
 from copy import deepcopy
 import json
@@ -35,7 +35,12 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
     from atomic_skillgraph.empirical.contracts import digest, program_digest
     config = json.loads(Path(config_path).read_text())
     sources = {'v6': 'single_node.json', 'v7': 'single_node_v7.json'}
-    if skill_revision == 'v8':
+    if skill_revision == 'v9':
+        if principle_ids:
+            raise ValueError('v9 uses its frozen public-intent clauses')
+        from typed_answer import skills
+        source = skills()
+    elif skill_revision == 'v8':
         from principles import compile_skill
         source = compile_skill(principle_ids)
     else:
@@ -48,7 +53,8 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
     output.mkdir(parents=True)
     bank = Bank(output, seed=42, environment=config['program_environment'])
     try:
-        asset = bank.put('skill', source)
+        assets = [bank.put('skill', item) for item in (source if skill_revision == 'v9' else [source])]
+        asset = assets[0]
         if crop:
             bundle = json.loads((ROOT / 'bank/bank.json').read_text())
             program = next(p for p in bundle['program'] if p['source_file'] == 'programs/image_region.py')
@@ -58,11 +64,18 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
             program = bank.put('program', program)
             bank.put('implementation', {'skill_id': asset['id'], 'program_id': program['id'],
                 'method_version': METHOD, 'origin': 'human_authored_unqualified'})
+        if skill_revision == 'v9':
+            from typed_answer import program as typed_program
+            formatter = bank.put('program', typed_program(config['program_environment'], METHOD))
+            bank.put('implementation', {'skill_id': asset['id'], 'program_id': formatter['id'],
+                'method_version': METHOD, 'origin': 'human_authored_unqualified'})
         manifest = {'method_version': METHOD, 'origin': 'human_authored_only_not_learned',
             'bank_digest': bank.digest(), 'source_bundle_hash': digest(source),
             'counts': {k: len(bank.all(k)) for k in ('skill', 'program', 'implementation', 'workflow')},
             'program_status': 'optional_image_crop' if crop else 'disabled', 'seed': 42,
             'skill_revision': skill_revision}
+        if skill_revision == 'v9':
+            manifest.update(typed_submission=True, routing='public_intent_first_match.v1')
         if skill_revision == 'v8':
             manifest['principle_ids'] = source['principle_ids']
         (output / 'manual_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
@@ -76,32 +89,41 @@ class SingleNodeDocVQAView:
     def __init__(self, bank, manifest, **kwargs):
         from atomic_skillgraph.empirical.contracts import digest
         self.crop_enabled = manifest['program_status'] == 'optional_image_crop'
-        expected = {'skill': 1, 'program': int(self.crop_enabled), 'implementation': int(self.crop_enabled), 'workflow': 0}
+        self.formatter_enabled = manifest.get('typed_submission', False)
+        count = int(self.crop_enabled) + int(self.formatter_enabled)
+        expected = {'skill': 4 if self.formatter_enabled else 1, 'program': count, 'implementation': count, 'workflow': 0}
         if (not bank.readonly or manifest['method_version'] != METHOD
                 or manifest['bank_digest'] != bank.digest()
                 or {k: len(bank.all(k)) for k in expected} != expected):
-            raise ValueError('Expected the immutable single-Skill manual Bank')
+            raise ValueError('Manual Bank content does not match its frozen view')
         self.bank = bank
-        self.programs = {'image_region': bank.all('program')[0]} if self.crop_enabled else {}
-        self.view_hash = digest([METHOD, manifest, 'one_skill_optional_image_crop'])
+        self.programs = {Path(p['source_file']).stem: p for p in bank.all('program')}
+        if self.formatter_enabled != (manifest.get('skill_revision') == 'v9'):
+            raise ValueError('Typed submission requires the v9 Bank')
+        self.view_hash = digest([METHOD, manifest,
+            'public_intent_typed_submission.v9' if self.formatter_enabled else 'one_skill_optional_image_crop'])
 
     def __getattr__(self, key):
         return getattr(self.bank, key)
 
     def retrieve_guidance(self, query, limit=5):
+        if self.formatter_enabled:
+            from typed_answer import select
+            return select(self.bank.all('skill'), query)[:limit]
         return self.bank.all('skill')[:limit]
 
     retrieve = retrieve_guidance
 
     def guidance_retrieval_audit(self, query, assets):
-        return [{'rank': i, 'skill_id': a['id'], 'manual_source': METHOD} for i, a in enumerate(assets)]
+        return [{'rank': i, 'skill_id': a['id'], 'manual_source': METHOD,
+            **({'public_intent_clause': a['principle_id']} if self.formatter_enabled else {})} for i, a in enumerate(assets)]
 
     def program_options(self, *args, **kwargs): return []
     def workflow_options(self): return []
     def planning_cards(self, query): return []
     def routes(self, *args, **kwargs): return []
     def program_eligible(self, program):
-        return bool(self.crop_enabled and program and program == self.programs['image_region'])
+        return bool(program and program in self.programs.values())
 
 
 @contextmanager
@@ -109,13 +131,15 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
     """Keep production metering/checkpoints/scoring; expose only the image and Skill."""
     if guidance_role not in ('user', 'system'):
         raise ValueError('guidance_role must be user or system')
-    if evidence_interface not in ('legacy', 'scoped', 'compact'):
+    if evidence_interface not in ('legacy', 'scoped', 'compact', 'typed'):
         raise ValueError('Unknown evidence interface')
     from atomic_skillgraph.empirical.system import EmpiricalSystem
     old = EmpiricalSystem.agent
 
     def agent(s, stage, prompt, materials, name, schema, **kwargs):
         if stage == 'runtime' and isinstance(s.bank, SingleNodeDocVQAView):
+            if s.bank.formatter_enabled != (evidence_interface == 'typed'):
+                raise ValueError('Typed interface and v9 Bank must be selected together')
             answer_step = name == 'answer_step'
             if name not in ('answer_step', 'finish_answer', None):
                 raise ValueError('Unexpected single-node decision')
@@ -125,13 +149,13 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
                 + s.adapter.answer_contract())
             material = deepcopy({k: materials[k] for k in ('goal', 'guidance', 'content_parts') if k in materials})
             if not material.get('guidance'):
-                material['guidance'] = s.bank.all('skill')
+                material['guidance'] = s.bank.retrieve_guidance(material.get('goal', ''))
             if guidance_role == 'system':
                 prompt += '\n\nManual Skill:\n' + '\n\n'.join(
                     item['guidance'] for item in material.pop('guidance', []))
             if not material.get('content_parts'):
                 material['content_parts'] = s.adapter.content_parts()
-            if s.bank.crop_enabled:
+            if s.bank.crop_enabled or s.bank.formatter_enabled:
                 from human_view import safe_crop_parts
                 contexts = []
                 failures = [{k: r[k] for k in ('result_id', 'status', 'error', 'reason') if k in r}
@@ -197,7 +221,12 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
                             'minItems': 1, 'uniqueItems': True,
                             'description': 'Select only supplied answer_sources handles: page for the original image, crop_N for an actual Program crop, row_N for its host-derived context. Tile names are inspect locations, never source handles.'}
                         schema['allOf'][1]['then']['required'].append('evidence_sources')
-                    if evidence_interface == 'compact':
+                    if evidence_interface == 'typed':
+                        from typed_answer import contract, instructions
+                        can_inspect = s.bank.crop_enabled and materials['remaining_local_executions'] > 1
+                        schema = contract(schema, can_inspect=can_inspect)
+                        prompt += ' ' + instructions(can_inspect)
+                    elif evidence_interface == 'compact':
                         for key in ('evidence_text', 'answer_kind'):
                             del schema['properties'][key]
                         schema['allOf'][1]['then']['required'] = ['answer', 'evidence_sources']
@@ -210,7 +239,7 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
                             'evidence_sources from answer_sources. page is the original; crop_N is a '
                             'Program crop; row_N is host context. Tile names are not source handles. '
                             'An inspection locates no target and verifies no text by itself.')
-                    else:
+                    elif evidence_interface != 'typed':
                         prompt += (' For small print, handwriting or ambiguous characters affecting the answer, '
                         'inspect the tile containing the field before committing to a reading. '
                         'Return exactly one answer_step call per response, with one action; never parallel calls. '
@@ -227,13 +256,14 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
                         'For finish, copy the supporting field/row into evidence_text, select answer_kind, '
                         'then put ONLY the requested constituent in answer, without introductory prose. '
                         'The evidence transcription is your reading, not independently verified OCR. ')
-                    if evidence_interface != 'compact':
+                    if evidence_interface not in ('compact', 'typed'):
                         prompt += ('For finish, select evidence_sources from answer_sources. The original page is page; '
                         'crop_N and row_N are available only after a successful inspection. A1/B2/etc. select where to inspect, '
                         'not evidence provenance. Never invent a handle or copy a tile into evidence_sources.'
                         if evidence_interface == 'scoped' else
                         'Use actual used_results when a crop supports the answer.')
-                    material['remaining_inspections'] = materials['remaining_local_executions']
+                    material['remaining_inspections'] = (int(can_inspect) if evidence_interface == 'typed'
+                                                         else materials['remaining_local_executions'])
                     step = deepcopy(old(s, stage, prompt, material, name, schema, **kwargs))
                     if step['action'] == 'inspect':
                         return {'action': 'call_program', 'name': s.bank.programs['image_region']['id'],
@@ -248,6 +278,10 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
                         s.requests[-1]['evidence_binding'] = {'version': 'scoped_image_sources.v1',
                             'available': sources, 'selected': selected, 'used_results': step['used_results']}
                         s._save_requests()
+                    if evidence_interface == 'typed' and step.get('answer_kind', 'verbatim') != 'verbatim':
+                        return {'action': 'call_program', 'name': s.bank.programs['typed_submit']['id'],
+                            'arguments': {'kind': step['answer_kind'], 'value': step['answer']},
+                            'used_results': step.get('used_results', [])}
                     return step
             answer = old(s, stage, prompt, material, None if answer_step else name, None, **kwargs)
             return {'action': 'finish', 'answer': answer or ''} if answer_step else answer

@@ -1,0 +1,9 @@
+{
+  "version": "docvqa.manual.typed-v9",
+  "core": "# DocVQA Skill\n\n## Visual Evidence Discipline\n- Read the document carefully before answering.\n- Prefer the smallest exact text span that answers the question.\n- When several nearby strings look similar, choose the one whose surrounding labels or layout best match the question.\n\n## Exact Answer Discipline\n- Copy names, numbers, and dates exactly from the document whenever possible.\n- Prefer direct extraction over paraphrase.\n- Before finalizing, compare the answer against nearby alternatives and keep the best-supported exact span.\n",
+  "principles": [
+    {"id": "comparison", "trigger": "\\b(highest|lowest|greatest|least|maximum|minimum|largest|smallest)\\b", "text": "For comparisons, first select the requested measure, units and eligible rows. Compare that column, not a neighboring count or rate; return the requested field from the winning row."},
+    {"id": "title", "trigger": "\\b(title|position|role)\\b", "text": "For a person's title, return the job title without the employer. For a document or work title, keep the complete title but exclude its adjacent catalogue number. Do not shorten formal titles to a familiar name."},
+    {"id": "quantity", "trigger": "\\b(how many|how much|quantity|amount|turnover|balance|income)\\b", "text": "For an amount or count, retain its units and bounds, but exclude labels, item descriptions and blank form slots. How many asks for a count, not an item's printed heading or ordinal."}
+  ]
+}
