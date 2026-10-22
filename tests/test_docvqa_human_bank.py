@@ -259,6 +259,42 @@ def test_principle_sets_are_explicit_and_compact():
         with pytest.raises(ValueError): compile_skill(invalid)
 
 
+def test_independent_rule_bank_and_typed_handoff(imported, tmp_path, monkeypatch):
+    from rule_search import skills
+    from typed_answer import select
+    assert len(skills([])) == 1
+    for invalid in [['phone_raw', 'phone_partition'], ['phone_raw', 'phone_raw'], ['unknown']]:
+        with pytest.raises(ValueError): skills(invalid)
+    chosen = skills(['entity_slot', 'comparison_header', 'phone_raw'])
+    assert [s['principle_id'] for s in select(chosen, 'Who has the most meetings?')] == ['core', 'comparison_header']
+    assert [s['principle_id'] for s in select(chosen, 'What is the phone number?')] == ['core', 'phone_raw']
+    assert [s['principle_id'] for s in select(chosen, 'What date is printed?')] == ['core']
+    c, _ = imported
+    c['data_dir'] = str(tmp_path / 'rule_bank')
+    config = tmp_path / 'rule_config.json'; config.write_text(json.dumps(c))
+    prepare_single(ROOT, config, c['data_dir'], crop=False, skill_revision='v10', principle_ids=['phone_raw'])
+    manifest = json.loads((Path(c['data_dir']) / 'manual_manifest.json').read_text())
+    expected = '(123) 456 7890'
+    adapter = AnswerAdapter('docvqa', {'docvqa:fixture': {'answers': [expected]}}, c)
+    system = EmpiricalSystem(c, harness=adapter, readonly=True,
+        bank_view_factory=lambda b: SingleNodeDocVQAView(b, manifest))
+    task = PublicTask('docvqa:fixture', 'synthetic-physical', 'What is the phone number?',
+        {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
+    sent = http(monkeypatch, [response([{'action': 'finish', 'answer': expected, 'answer_kind': 'phone',
+        'evidence_sources': ['page']}], name='answer_step')])
+    try:
+        before = system.bank.digest()
+        with single_node_bridge(guidance_role='system', evidence_interface='typed'):
+            trace = system.run_task(task, learn=False)
+        assert trace['execution']['reason'] == 'program_submitted' and trace['score']['hard']
+        assert len(sent) == 1 and system.bank.digest() == before
+        assert manifest['counts'] == {'skill': 2, 'program': 1, 'implementation': 1, 'workflow': 0}
+        assert skills(['phone_raw'])[1]['guidance'] in sent[0]['messages'][0]['content']
+        assert 'one inspection' not in sent[0]['messages'][0]['content'].lower()
+    finally:
+        system.close()
+
+
 @pytest.mark.parametrize('kind,value,expected,inspect', [
     ('phone', '+44 1234 567890', '+441234567890', False),
     ('page', '- 27 -', '27', False),
@@ -312,6 +348,49 @@ def test_typed_final_submission_preserves_selected_value(imported, tmp_path, mon
         assert [a['principle_id'] for a in system.bank.retrieve_guidance('Who received the highest amount?')] == ['core', 'comparison']
         assert [a['principle_id'] for a in system.bank.retrieve_guidance('What is her title?')] == ['core', 'title']
         assert [a['principle_id'] for a in system.bank.retrieve_guidance('Why did this happen?')] == ['core']
+    finally:
+        system.close()
+
+
+@pytest.mark.parametrize('question,kind,value,expected', [
+    ('What percentage is reported?', 'percentage', 'more than 4.30 %', 'more than 4.30%'),
+    ('What is the mortality rate?', 'percentage', '4 per 1000', '4 per 1000'),
+    ('What is the company name?', 'verbatim', 'The 4 % Company', 'The 4 % Company'),
+])
+def test_scoped_percentage_program_preserves_semantics(imported, tmp_path, monkeypatch, question, kind, value, expected):
+    from rule_search import skills
+    from typed_answer import select
+    with pytest.raises(ValueError): skills(['value_components', 'value_qualified'], revision='v11')
+    c, _ = imported
+    c['data_dir'] = str(tmp_path / 'v11_bank')
+    config = tmp_path / 'v11_config.json'; config.write_text(json.dumps(c))
+    prepare_single(ROOT, config, c['data_dir'], crop=False, skill_revision='v11',
+        principle_ids=['phone_raw', 'percent_render'])
+    manifest = json.loads((Path(c['data_dir']) / 'manual_manifest.json').read_text())
+    adapter = AnswerAdapter('docvqa', {'docvqa:fixture': {'answers': [expected]}}, c)
+    system = EmpiricalSystem(c, harness=adapter, readonly=True,
+        bank_view_factory=lambda b: SingleNodeDocVQAView(b, manifest))
+    task = PublicTask('docvqa:fixture', 'synthetic-physical', question,
+        {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
+    sent = http(monkeypatch, [response([{'action': 'finish', 'answer': value, 'answer_kind': kind,
+        'evidence_sources': ['page']}], name='answer_step')])
+    try:
+        before = system.bank.digest()
+        with single_node_bridge(guidance_role='system', evidence_interface='typed'):
+            trace = system.run_task(task, learn=False)
+        assert trace['execution']['prediction'] == expected and trace['score']['hard']
+        assert len(sent) == 1 and system.bank.digest() == before
+        kinds = sent[0]['tools'][0]['function']['parameters']['properties']['answer_kind']['enum']
+        assert ('percentage' in kinds) == (kind == 'percentage')
+        assert trace['requests'][-1]['response']['tool_calls'][0]['arguments']['answer'] == value
+        if kind == 'percentage':
+            assert trace['execution']['reason'] == 'program_submitted'
+            attempt = trace['execution']['attempts'][-1]
+            result = system.task_context.results[attempt['result_id']]
+            assert result['execution_receipt'] and result['outputs']['original'] == value
+        else:
+            assert not trace['execution']['attempts']
+        assert [a['principle_id'] for a in select(skills(['phone_raw'], revision='v11'), question)] == ['core']
     finally:
         system.close()
 

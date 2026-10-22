@@ -1,0 +1,15 @@
+{
+  "parent": null,
+  "historical_charged_tokens": 0,
+  "historical_http": 0,
+  "allocation": {
+    "tokens": 8000000,
+    "http": 3000
+  },
+  "limits": {
+    "token_limit": 8000000,
+    "request_limit": 3000,
+    "finish_reserve": 0
+  },
+  "accounting": "First SearchQA ledger for this model. Existing provider probes and LiveMath ledgers remain separate and unchanged; their costs are not represented as zero or included twice."
+}

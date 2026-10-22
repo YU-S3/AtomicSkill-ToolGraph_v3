@@ -1,0 +1,30 @@
+{
+  "version": "docvqa.manual.rule-search.v10",
+  "core_source": "typed_v9.json",
+  "directions": [
+    {
+      "id": "entity",
+      "trigger": "\\b(where|who|whom|institution|association|company|organization)\\b",
+      "variants": [
+        {"id": "entity_slot", "text": "When a name or place is requested, fill only that identity slot with its complete source name. Exclude sentence lead-ins and attached addresses or descriptions; retain words intrinsic to the name."},
+        {"id": "entity_boundary", "text": "When a name or place is requested, separate its identity from what the sentence says about it. Return the complete name without the surrounding relation or explanatory expansion."}
+      ]
+    },
+    {
+      "id": "comparison",
+      "trigger": "\\b(highest|lowest|greatest|least|maximum|minimum|largest|smallest|most|fewest|lower)\\b",
+      "variants": [
+        {"id": "comparison_header", "text": "For table comparisons, read the full column header and its units before examining values. Match the requested measure and eligible rows, compare only that column, and return the requested winning field alone."},
+        {"id": "comparison_separate", "text": "For table comparisons, separate measure selection from winning-row selection. Counts and rates are different measures. Keep each value aligned with its row; submit only the requested field from the winner."}
+      ]
+    },
+    {
+      "id": "phone",
+      "trigger": "\\b(phone|telephone|fax)\\b",
+      "variants": [
+        {"id": "phone_raw", "text": "For phone or fax, pass the exact visible number to answer_step, including parentheses, hyphens and spaces. Never pre-format it; only the Program applies its declared formatting."},
+        {"id": "phone_partition", "text": "For phone or fax, copy every visible separator. Use verbatim when parentheses or hyphens are printed; use phone only for space-separated digit groups. Do not normalize the tool input yourself."}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "parent": "/home/yangchengyu/searchqa_v7_crossmodel_test1400_seed42_20261021/kimi_k26",
+  "parent_plan_sha256": "a17e793edd40ae2a3270daeccf5a8a5e2aea7bfb57c4285489288d3aa2863b8f",
+  "child_plan_sha256": "e2e99535e1ebde4b265cb1e3d8d71617a8c4c9cf9235be6b0e8d35ae3083797d",
+  "source": {
+    "git_sha": "a4b96eedda9dc920afe4b7105b9e37f93cc931e8",
+    "tracked_dirty": false,
+    "source_sha256": "b6d3b0d87e55afdbfd5696c06beec04b73122b0773db0f218278839b7008e072"
+  },
+  "execution_adapter": {
+    "version": "provider-terminal-refusal.v2",
+    "sha256": "2f696876447d082a3d5d2600850e56e9968fcb995db867aea33393415d88de1a",
+    "core_source_unchanged": true
+  },
+  "parent_completed": 1390,
+  "method_model_bank_input_unchanged": true,
+  "replay_sources": {
+    "v7_text_compiler": {
+      "searchqa:93c5050360564c80b95382bc27b44fb7": {
+        "path": "/home/yangchengyu/searchqa_v7_crossmodel_test1400_seed42_20261021/kimi_k26/fulltest1400/v7_text_compiler/test/requests/searchqa:93c5050360564c80b95382bc27b44fb7_attempt1.json",
+        "audit_digest": "dd35fcc156ca772f9f05a7399c8bf02356a2c17a44fd71e1c4fce202453dfe90",
+        "source_plan_sha256": "a17e793edd40ae2a3270daeccf5a8a5e2aea7bfb57c4285489288d3aa2863b8f",
+        "no_new_http": true
+      }
+    }
+  },
+  "at": "2026-10-22T04:04:41.125727+00:00"
+}

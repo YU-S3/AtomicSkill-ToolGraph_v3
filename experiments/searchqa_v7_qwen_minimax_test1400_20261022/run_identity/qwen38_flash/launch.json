@@ -1,0 +1,15 @@
+{
+  "pid": 84832,
+  "at": "2026-10-22T05:00:52.017792+00:00",
+  "command": [
+    "/home/yangchengyu/asg_alfworld_venv/bin/python",
+    "-B",
+    "-u",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_qwen_minimax_test1400_20261022/run_models.py",
+    "run",
+    "--model",
+    "qwen38_flash"
+  ],
+  "resume": false,
+  "plan_sha256": "78c4c5247bbd504fdcdcb5d84e4b5271d8504578d12c1f91e0f6525dab1f90dd"
+}

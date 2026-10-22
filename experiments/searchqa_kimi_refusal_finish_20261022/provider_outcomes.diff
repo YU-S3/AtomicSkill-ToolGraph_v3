@@ -1,0 +1,66 @@
+--- provider-terminal-refusal.v1
++++ provider-terminal-refusal.v2
+@@ -9,31 +9,41 @@
+ from atomic_skillgraph.empirical.checkpoint import save_json
+ from atomic_skillgraph.empirical.contracts import digest
+ 
+-VERSION = 'provider-terminal-refusal.v1'
++VERSION = 'provider-terminal-refusal.v2'
+ POLICY = {
+     'version': VERSION,
+-    'authorization': '用户要求修好拒答、缺失用量及续跑处理并续跑；保持原额度。',
++    'authorization': '用户要求完成 Kimi 实验；保留原额度及明确拒答原始记录。',
+     'refusal': 'Official empty-answer scoring; keep in denominator; no retry or prompt alteration.',
+     'billing': 'Missing usage stays unknown; retain full original reservation, never fabricate zero usage.',
+     'other_errors': 'Stop without scoring; unknown transport/inference failures are not refusals.',
+ }
+ 
+ 
+-def last_refusal(audit, task_id):
+-    attempts = [a for request in audit.get('requests', []) for a in request.get('http_attempts', [])]
+-    if not attempts:
+-        return None
+-    attempt = attempts[-1]
++def refusal_evidence(attempt):
++    dialect = attempt.get('final_payload_audit', {}).get('provider_snapshot', {}).get('dialect')
++    diagnostic = attempt.get('response_diagnostic') or {}
++    error = diagnostic.get('error') or {}
++    if (dialect == 'moonshot_k2_chat' and attempt.get('http_status') == 400
++            and error.get('type') == 'content_filter'):
++        return {'source': 'http_error', 'http_status': 400, 'error_type': 'content_filter',
++                'error_code': error.get('code'), 'finish_reason': None}
+     choices = (attempt.get('public_response') or {}).get('choices')
+     if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
+         return None
+     finish = choices[0].get('finish_reason')
+-    dialect = attempt.get('final_payload_audit', {}).get('provider_snapshot', {}).get('dialect')
+     if not (finish == 'content_filter' or (finish == 'sensitive' and dialect == 'glm_53_chat')):
+         return None
+     stream = (attempt.get('response_diagnostic') or {}).get('stream')
+     if attempt.get('http_status') != 200 or (stream and stream.get('completed') is not True):
+         return None
++    return {'source': 'completion', 'http_status': 200, 'error_type': None, 'finish_reason': finish}
++
++
++def last_refusal(audit, task_id):
++    attempts = [a for request in audit.get('requests', []) for a in request.get('http_attempts', [])]
++    if not attempts or refusal_evidence(attempts[-1]) is None:
++        return None
++    attempt = attempts[-1]
+     if attempt.get('request_context', {}).get('parent_task_id') != task_id:
+         raise ValueError('Refusal task identity mismatch')
+     return attempt
+@@ -88,9 +98,12 @@
+         require_available()
+         result = deepcopy(getattr(system.executor, 'partial_execution', {}))
+         result.setdefault('attempts', [])
++        evidence = refusal_evidence(attempt)
++        assert evidence is not None
+         result.update(prediction=None, reason='provider_content_filter', answer_status='provider_refusal',
+                       empty_answer=True, completion_truncated=False, all_authored_nodes_completed=False,
+-                      provider_finish_reason=attempt['public_response']['choices'][0]['finish_reason'],
++                      provider_finish_reason=evidence['finish_reason'],
++                      provider_refusal_evidence=evidence,
+                       provider_request_id=attempt['provider_request_id'],
+                       refusal_policy=VERSION, refusal_billing=billing, refused_request_id=attempt['request_id'])
+         if origin:
