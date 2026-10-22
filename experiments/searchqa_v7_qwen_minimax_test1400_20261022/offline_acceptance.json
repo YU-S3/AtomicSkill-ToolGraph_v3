@@ -1,0 +1,102 @@
+{
+  "passed": true,
+  "real_http": 0,
+  "source": {
+    "git_sha": "5ff29b0a785642aa5ba54918843ebcdc586afae0",
+    "tracked_dirty": false,
+    "source_sha256": "52c3e294dbc76ab1548cf14b152c757c7c5aa4c92b19e12a858059cb94c0e295"
+  },
+  "checks": [
+    {
+      "model": "qwen38_flash",
+      "mode": "normal",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_qwen38_flash_normal_47rhjnz4"
+    },
+    {
+      "model": "qwen38_flash",
+      "mode": "refusal_metered",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_qwen38_flash_refusal_metered_iucif181"
+    },
+    {
+      "model": "qwen38_flash",
+      "mode": "refusal_unknown",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_qwen38_flash_refusal_unknown_rqnqi7s0"
+    },
+    {
+      "model": "qwen38_flash",
+      "mode": "broken_stream",
+      "passed": true,
+      "intercepted_requests": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_qwen38_flash_broken_stream__x7cvgo0"
+    },
+    {
+      "model": "qwen38_flash",
+      "mode": "missing_usage",
+      "passed": true,
+      "intercepted_requests": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_qwen38_flash_missing_usage_2w3yp9pr"
+    },
+    {
+      "model": "minimax_m3",
+      "mode": "normal",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_minimax_m3_normal_klp1rdo2"
+    },
+    {
+      "model": "minimax_m3",
+      "mode": "refusal_metered",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_minimax_m3_refusal_metered_8fx5xe7a"
+    },
+    {
+      "model": "minimax_m3",
+      "mode": "refusal_unknown",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_minimax_m3_refusal_unknown_e7z8n62t"
+    },
+    {
+      "model": "minimax_m3",
+      "mode": "broken_stream",
+      "passed": true,
+      "intercepted_requests": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_minimax_m3_broken_stream_v6ygnaib"
+    },
+    {
+      "model": "minimax_m3",
+      "mode": "missing_usage",
+      "passed": true,
+      "intercepted_requests": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_crossmodel_minimax_m3_missing_usage_clt_554h"
+    }
+  ],
+  "driver_sha256": "3ee2d03a68c1da8785cd9700eafc4327a4b19d9ebbd33ef3837fcb26e7fc4ede",
+  "launcher_sha256": "b4ca5dd57c3b0809c40445c86120b5bda3645ac18ae829d800a3ff87a2535936",
+  "test_sha256": "bd562b2e2a00b4f45d449748a965410d04cbb9473d895431765bd3f6dcc37ef5",
+  "same_v7_messages_and_full_public_context": true,
+  "canonical_payloads_checked": 2800,
+  "maximum_prompt_bound_plus_completion": 209350,
+  "native_docker_program_and_official_score_verified": true,
+  "completed_resume_adds_no_calls": true,
+  "explicit_refusals_scored_once": true,
+  "unknown_usage_not_fabricated": true,
+  "broken_stream_and_missing_usage_stop_before_score": true
+}

@@ -1,0 +1,10 @@
+{
+  "status": "approved",
+  "at": "2026-10-22T05:00:38.454013+00:00",
+  "allocation": {
+    "tokens": 8000000,
+    "http": 3000
+  },
+  "user_instruction": "检查配置，用qwen-3.8-flash、minimax-M3加bank分别运行一次test",
+  "scope": "One complete SearchQA Test1400 with unchanged V7, no extra trial or training."
+}
