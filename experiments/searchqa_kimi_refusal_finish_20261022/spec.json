@@ -1,0 +1,22 @@
+{
+  "tasks": "/mnt/d/T3S_exp/deliveries/searchqa_kimi_refusal_finish_20261022/remaining_tasks.json",
+  "base_config": "/mnt/d/T3S_exp/deliveries/searchqa_kimi_refusal_finish_20261022/base_config.json",
+  "arms": {
+    "v7_text_compiler": {
+      "package": "/home/yangchengyu/searchqa_v7_crossmodel_test1400_seed42_20261021/kimi_k26/fulltest1400/v7_text_compiler/input",
+      "frozen_source": "/home/yangchengyu/searchqa_v7_crossmodel_test1400_seed42_20261021/kimi_k26/fulltest1400/v7_text_compiler/frozen_bank",
+      "kind": "native"
+    }
+  },
+  "replay_sources": {
+    "v7_text_compiler": {
+      "searchqa:93c5050360564c80b95382bc27b44fb7": {
+        "path": "/home/yangchengyu/searchqa_v7_crossmodel_test1400_seed42_20261021/kimi_k26/fulltest1400/v7_text_compiler/test/requests/searchqa:93c5050360564c80b95382bc27b44fb7_attempt1.json",
+        "audit_digest": "dd35fcc156ca772f9f05a7399c8bf02356a2c17a44fd71e1c4fce202453dfe90",
+        "source_plan_sha256": "a17e793edd40ae2a3270daeccf5a8a5e2aea7bfb57c4285489288d3aa2863b8f",
+        "no_new_http": true
+      }
+    }
+  },
+  "purpose": "Complete unchanged V7 Kimi Test1400: preserve 1390 completed tasks; score one saved explicit HTTP400 content_filter refusal without resending; run the remaining nine canonical tasks with unchanged model and budget."
+}

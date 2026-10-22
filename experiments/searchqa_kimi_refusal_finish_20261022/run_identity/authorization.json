@@ -1,0 +1,18 @@
+{
+  "status": "approved",
+  "at": "2026-10-22T04:04:40.927767+00:00",
+  "allocation": {
+    "tokens": 8000000,
+    "http": 3000
+  },
+  "user_instruction": "启动同样的bank做kimi-k2.6和GLM-5.3-flash的各一遍完整test",
+  "scope": "One full fresh Test1400, unchanged V7, configured model; no automatic budget expansion.",
+  "continuation_authorization": "完成kimi的实验",
+  "refusal_policy": {
+    "version": "provider-terminal-refusal.v2",
+    "authorization": "用户要求完成 Kimi 实验；保留原额度及明确拒答原始记录。",
+    "refusal": "Official empty-answer scoring; keep in denominator; no retry or prompt alteration.",
+    "billing": "Missing usage stays unknown; retain full original reservation, never fabricate zero usage.",
+    "other_errors": "Stop without scoring; unknown transport/inference failures are not refusals."
+  }
+}

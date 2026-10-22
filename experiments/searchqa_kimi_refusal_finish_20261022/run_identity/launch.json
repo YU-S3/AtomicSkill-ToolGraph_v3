@@ -1,0 +1,12 @@
+{
+  "pid": 71035,
+  "at": "2026-10-22T04:04:50.990439+00:00",
+  "command": [
+    "/home/yangchengyu/asg_alfworld_venv/bin/python",
+    "-B",
+    "-u",
+    "/mnt/d/T3S_exp/deliveries/searchqa_kimi_refusal_finish_20261022/continue_kimi.py",
+    "run"
+  ],
+  "resume": false
+}

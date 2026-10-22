@@ -1,0 +1,17 @@
+{
+  "source": {
+    "git_sha": "a4b96eedda9dc920afe4b7105b9e37f93cc931e8",
+    "tracked_dirty": false,
+    "source_sha256": "b6d3b0d87e55afdbfd5696c06beec04b73122b0773db0f218278839b7008e072"
+  },
+  "refusal_policy": {
+    "version": "provider-terminal-refusal.v2",
+    "authorization": "用户要求完成 Kimi 实验；保留原额度及明确拒答原始记录。",
+    "refusal": "Official empty-answer scoring; keep in denominator; no retry or prompt alteration.",
+    "billing": "Missing usage stays unknown; retain full original reservation, never fabricate zero usage.",
+    "other_errors": "Stop without scoring; unknown transport/inference failures are not refusals."
+  },
+  "guard_sha256": "2f696876447d082a3d5d2600850e56e9968fcb995db867aea33393415d88de1a",
+  "core_source_unchanged": true,
+  "authorization": "完成kimi的实验"
+}

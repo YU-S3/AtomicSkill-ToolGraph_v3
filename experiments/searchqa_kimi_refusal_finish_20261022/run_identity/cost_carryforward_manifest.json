@@ -1,0 +1,40 @@
+{
+  "parent": "/home/yangchengyu/searchqa_v7_crossmodel_test1400_seed42_20261021/kimi_k26",
+  "parent_budget_sha256": "4592cd8440a8e07b81dd15f604e1e0fd1a4dc2c8951d6fb354b4e4fd024aafaa",
+  "parent_completed": {
+    "v7_text_compiler": {
+      "completed": 1390,
+      "total": 1390,
+      "correct": 1189,
+      "tokens": 5317308,
+      "native_graphs": 1390,
+      "program_calls": 1390,
+      "program_ok": 1390
+    }
+  },
+  "prior_searchqa_tokens": 5317308,
+  "prior_searchqa_http": 1391,
+  "limits": {
+    "token_limit": 8000000,
+    "request_limit": 3000,
+    "finish_reserve": 0
+  },
+  "no_limit_increase": true,
+  "unknown_reservation_preserved": {
+    "schema": "billing-reservation-recovery.v1",
+    "authorization": {
+      "version": "provider-terminal-refusal.v2",
+      "authorization": "用户要求完成 Kimi 实验；保留原额度及明确拒答原始记录。",
+      "refusal": "Official empty-answer scoring; keep in denominator; no retry or prompt alteration.",
+      "billing": "Missing usage stays unknown; retain full original reservation, never fabricate zero usage.",
+      "other_errors": "Stop without scoring; unknown transport/inference failures are not refusals."
+    },
+    "attempts": {
+      "provider_request_25f82056f1b64ac5a2b7c850dac98fd4": {
+        "entry_hash": "b651c6ddd03473d08b986dafcfc9b6655258c86e05b6e0b0e6ad2b22ba1951f9",
+        "reserved_tokens": 77429
+      }
+    }
+  },
+  "accounting": "Inherit physical request IDs once. Preserve 77429 unknown tokens as a reservation, never as measured usage."
+}
