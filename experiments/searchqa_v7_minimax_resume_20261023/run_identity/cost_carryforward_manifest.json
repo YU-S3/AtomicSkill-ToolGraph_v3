@@ -1,0 +1,34 @@
+{
+  "parent": "/home/yangchengyu/searchqa_v7_qwen_minimax_test1400_seed42_20261022/minimax_m3",
+  "parent_budget_sha256": "156c3010ddf2f2545144b70b8f3b51e130e1c758348f6324edac371313786093",
+  "parent_completed": {
+    "v7_text_compiler": {
+      "completed": 254,
+      "total": 254,
+      "correct": 216,
+      "tokens": 891427,
+      "native_graphs": 253,
+      "program_calls": 253,
+      "program_ok": 253
+    }
+  },
+  "prior_searchqa_tokens": 891427,
+  "prior_searchqa_http": 256,
+  "limits": {
+    "token_limit": 8000000,
+    "request_limit": 3000,
+    "finish_reserve": 0
+  },
+  "no_limit_increase": true,
+  "unknown_reservation_preserved": {
+    "schema": "billing-reservation-recovery.v1",
+    "authorization": "用户于2026-10-23要求：minimax能续跑吗。恢复已中断的Test；保留历史费用预留，不扩大累计预算。",
+    "attempts": {
+      "provider_request_d3c635e84a5c4f69a0c9ce9cf67f279b": {
+        "entry_hash": "6b33a0d89ccd57bd7fd43ff2cfb95342a355251865f633b7cfe7868978bfd1f6",
+        "reserved_tokens": 77459
+      }
+    }
+  },
+  "accounting": "Inherit every physical request ID once. Keep 77459 tokens as unknown reservation, not measured usage."
+}

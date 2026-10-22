@@ -1,0 +1,20 @@
+{
+  "parent": "/home/yangchengyu/searchqa_v7_qwen_minimax_test1400_seed42_20261022/minimax_m3",
+  "parent_plan_sha256": "31743f46dd4cb6ec6a28b5836d4ebdb5090d805497f0c1dba57c20c51d8b5907",
+  "child_plan_sha256": "d51d1aedd51c403bf3b9856e26efffa1c1ab2c6213508ee6ab4076cc7f1e99ab",
+  "source": {
+    "git_sha": "5ff29b0a785642aa5ba54918843ebcdc586afae0",
+    "tracked_dirty": false,
+    "source_sha256": "52c3e294dbc76ab1548cf14b152c757c7c5aa4c92b19e12a858059cb94c0e295"
+  },
+  "recovery": {
+    "version": "explicit-single-overload-continuation.v1",
+    "original_request_id": "provider_request_d3c635e84a5c4f69a0c9ce9cf67f279b",
+    "old_request_scope": "/home/yangchengyu/searchqa_v7_qwen_minimax_test1400_seed42_20261022/minimax_m3/fulltest1400/v7_text_compiler/test:f188604a697f897d052a6c90a5a2de97a43f61edb3b40b161b86cd2d76740372",
+    "old_reservation_charged_to_cumulative_ledger": true,
+    "max_recovery_attempts_for_saved_failure": 1
+  },
+  "parent_completed": 254,
+  "method_model_bank_input_unchanged": true,
+  "at": "2026-10-22T16:56:43.560505+00:00"
+}

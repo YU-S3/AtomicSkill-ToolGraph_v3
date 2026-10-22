@@ -1,0 +1,12 @@
+{
+  "status": "approved",
+  "at": "2026-10-22T16:56:43.322613+00:00",
+  "allocation": {
+    "tokens": 8000000,
+    "http": 3000
+  },
+  "user_instruction": "检查配置，用qwen-3.8-flash、minimax-M3加bank分别运行一次test",
+  "scope": "One complete SearchQA Test1400 with unchanged V7, no extra trial or training.",
+  "continuation_authorization": "用户于2026-10-23要求：minimax能续跑吗。恢复已中断的Test；保留历史费用预留，不扩大累计预算。",
+  "retry_scope": "One new execution of the saved overloaded task in a new run scope; its old unknown reservation remains charged to the shared cumulative limit."
+}

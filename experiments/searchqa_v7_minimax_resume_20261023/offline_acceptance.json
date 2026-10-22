@@ -1,0 +1,32 @@
+{
+  "passed": true,
+  "real_http": 0,
+  "checks": [
+    {
+      "mode": "normal",
+      "passed": true,
+      "intercepted_http": 2,
+      "root": "/home/yangchengyu/minimax_529_resume_normal_od8w8iei"
+    },
+    {
+      "mode": "new_overload",
+      "passed": true,
+      "intercepted_http": 1,
+      "root": "/home/yangchengyu/minimax_529_resume_new_overload_kycdfada"
+    }
+  ],
+  "source": {
+    "git_sha": "5ff29b0a785642aa5ba54918843ebcdc586afae0",
+    "tracked_dirty": false,
+    "source_sha256": "52c3e294dbc76ab1548cf14b152c757c7c5aa4c92b19e12a858059cb94c0e295"
+  },
+  "inherited_entry_unchanged": true,
+  "original_limits_unchanged": true,
+  "original_messages_and_parameters_preserved": true,
+  "new_overload_stops_without_scoring": true,
+  "completed_resume_zero_new_calls": true,
+  "native_docker_program_consumed": true,
+  "driver_sha256": "3ee2d03a68c1da8785cd9700eafc4327a4b19d9ebbd33ef3837fcb26e7fc4ede",
+  "launcher_sha256": "c26297eef92bc1a30a65396a6c3c6be6ef53411382afee79873fca41de611c89",
+  "test_sha256": "c72a721ce7cd4ff7b5efb08f8990364a4e91e5e2591de23873bfc97df98257d2"
+}

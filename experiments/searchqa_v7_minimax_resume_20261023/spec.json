@@ -1,0 +1,12 @@
+{
+  "tasks": "/mnt/d/T3S_exp/deliveries/searchqa_v7_minimax_resume_20261023/remaining_tasks.json",
+  "base_config": "/mnt/d/T3S_exp/deliveries/searchqa_v7_minimax_resume_20261023/base_config.json",
+  "arms": {
+    "v7_text_compiler": {
+      "package": "/home/yangchengyu/searchqa_v7_qwen_minimax_test1400_seed42_20261022/minimax_m3/fulltest1400/v7_text_compiler/input",
+      "kind": "native",
+      "frozen_source": "/home/yangchengyu/searchqa_v7_qwen_minimax_test1400_seed42_20261022/minimax_m3/fulltest1400/v7_text_compiler/frozen_bank"
+    }
+  },
+  "purpose": "Continue MiniMax V7 Test1400 after saved HTTP529 overloaded_error. Keep 254 completed tasks and original physical charges/reservation; one authorized new execution of interrupted task, then remaining canonical tasks. Same model, prompt, Bank, method, scoring and configured per-execution limits; no cumulative increase."
+}
