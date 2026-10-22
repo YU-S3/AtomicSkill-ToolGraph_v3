@@ -62,7 +62,7 @@ def contract(schema, *, can_inspect, percentage=False):
 def instructions(can_inspect, *, percentage=False, direct_submit=False):
     return (('Use one answer_step call with answer, answer_kind and evidence_sources; '
              if direct_submit else 'Use one answer_step call. For finish, choose the answer and its type; ')
-        'only the tool answer is submitted, with no later rewrite. '
+        + 'only the tool answer is submitted, with no later rewrite. '
         'phone removes spaces between digits; page removes paired dash ornaments; '
         'count removes N= from a number. Other text is unchanged. '
         'Use verbatim for all other fields. Select evidence_sources from the supplied handles. '
