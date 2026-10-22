@@ -1143,8 +1143,9 @@ class EmpiricalSystem:
             prior_events = json.loads(native_path.read_text())
             specs = {t['name']: t for t in broker.available_tools()}
             sealed_workspace = self.checkpoint.state.get('executor_finished_workspace')
+            from .checkpoint import native_event_restorable
             if self.adapter.capabilities.checkpoint_mode != 'workspace_copy' or any(
-                e['state'] != 'finished' or (not sealed_workspace and specs.get(e['name'], {}).get('effect') != 'read_only') for e in prior_events):
+                not native_event_restorable(e, specs, bool(sealed_workspace)) for e in prior_events):
                 from ..harness.simple_protocol import UnknownSideEffect
                 raise UnknownSideEffect('Interrupted stateful or unknown operation requires explicit reconstruction')
             broker.events = prior_events

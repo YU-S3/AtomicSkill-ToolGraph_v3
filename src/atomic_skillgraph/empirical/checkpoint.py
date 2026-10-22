@@ -5,6 +5,14 @@ from pathlib import Path
 from uuid import uuid4
 
 
+def native_event_restorable(event, specs, sealed_workspace=False):
+    """Completed local refusals never reached a backend; unknown effects still block."""
+    return event.get('state') == 'finished' and (
+        sealed_workspace or specs.get(event.get('name'), {}).get('effect') == 'read_only'
+        or (event.get('backend_invoked') is False and
+            (event.get('result', {}).get('accepted') is False or event.get('local_result_read') is True)))
+
+
 def save_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

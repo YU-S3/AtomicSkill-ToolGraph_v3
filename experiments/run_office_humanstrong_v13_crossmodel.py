@@ -157,7 +157,7 @@ def prepare(root, failed_prefix=None):
 def status(root, details=False):
     result = common.status(root)
     plan = common.read(root/'plan.json')
-    metrics = {m:{'completed':0,'correct':0,'tokens':0,'http':0} for m in MODELS}
+    metrics = {m:{'completed':0,'correct':0,'tokens':0,'http':0,'unknown_billing_attempts':0} for m in MODELS}
     for e in plan['episodes']:
         path = Path(e['path'])/'summary.json'
         if not path.exists(): continue
@@ -166,7 +166,8 @@ def status(root, details=False):
         m = metrics[e['model_key']]
         m['completed'] += 1
         m['correct'] += summary['successes']
-        m['tokens'] += summary['total_tokens']
+        m['tokens'] += summary['known_total_tokens']
+        m['unknown_billing_attempts'] += summary['unknown_billing_attempts']
         m['http'] += sum(u.get('call_count',0) for c in summary['cases'] for u in c['usage'])
     if result['launch'].get('status') == 'running':
         result['launch']['model_key'] = plan['episodes'][result['launch']['episode_index']]['model_key']
