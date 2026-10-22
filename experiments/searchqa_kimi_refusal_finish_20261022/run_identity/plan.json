@@ -1,0 +1,125 @@
+{
+  "code": {
+    "git_sha": "a4b96eedda9dc920afe4b7105b9e37f93cc931e8",
+    "tracked_dirty": false,
+    "source_sha256": "b6d3b0d87e55afdbfd5696c06beec04b73122b0773db0f218278839b7008e072"
+  },
+  "created_at": "2026-10-22T04:04:41.036657+00:00",
+  "tasks": 10,
+  "arms": {
+    "v7_text_compiler": {
+      "package": "/home/yangchengyu/searchqa_v7_crossmodel_test1400_seed42_20261021/kimi_k26/fulltest1400/v7_text_compiler/input",
+      "frozen_source": "/home/yangchengyu/searchqa_v7_crossmodel_test1400_seed42_20261021/kimi_k26/fulltest1400/v7_text_compiler/frozen_bank",
+      "kind": "native"
+    }
+  },
+  "input_identity": {
+    "v7_text_compiler": {
+      "sha256": "18316105ad5aa8c2fb3e4ea7f77c8326ca3c8bb8e61073760b1c88d940592518",
+      "files_sha256": {
+        "FILE_SHA256.json": "21de23c63ac06022f79b97de136560b04c3513b6499230442a45b9a5e0bca554",
+        "INTEGRATION_CONTRACT.md": "f82bbbf11c77e0e55cc0d1947371fef6ccfa978316b93532815bd4e92b105db3",
+        "README.md": "c5db87c21cc0f5e8116385ecddd0737d945fdf95186dec51af21cbfdb18a278a",
+        "RESEARCH_AND_DECISIONS.md": "ec251cda4fd91ac1541910b4c72d2372506c48d488e50fb37c2f1cc360411515",
+        "THIRD_PARTY_NOTICES.md": "ba57f6d61b6f235dec4f181778d6cbaeebf1ac7caf8bd3ff604cb0b2972a4e82",
+        "bank/bank.json": "7905f4c11e61b858fd390dd338b06e2f8183a89bc27d262efdbff27bd9cf7d4c",
+        "bank/manual_manifest.json": "e7c2ab679786b41856497016bffb49426a3b3db09f9b8079c6ce693acbe67c5b",
+        "build_bank.py": "ec401df5da2e509774d89132658ac3b08cea325a920ee9a7ba2ebbfe4826654a",
+        "candidate_provenance.json": "b3a410502dcca5a4e63e828d099f213a849a3a9bbb3fd22c7f5d28654e6151fa",
+        "diagnostic_provenance.json": "ea9ad82db60603771a2e988df39867e53242b14a9c2cee6e9deedebb16d71ff1",
+        "environment.lock.json": "1158db4439d46c70ce46f8e9bdc800fb66a16ea56ff9ddc49a150723d00e3281",
+        "guidance/evidence.txt": "b160a7baaa2984d2c8af55b7fbce7a60199e79a96913e6c5329b3856d567908e",
+        "guidance/solve.txt": "669266659379fe8fe81d30b9af20a588cab0e29d9e31445ab63b48c266fc01b3",
+        "guidance/surface.txt": "01c5376c3a0a71233221535cf14bfd29654f83405d96e7bc31ba73b66f0ff116",
+        "implementations/implementation_hs_searchqa_constraint_check_v7_text_compiler.json": "a0a73602a13815c3f14432d3d70897dfd85bf8584cfcf8e63810caafca4a5a25",
+        "implementations/implementation_hs_searchqa_context_index_v7_text_compiler.json": "950be2ef06e8ef55987636d1b75132cf68a2dcc3395869f36d23a20e84122092",
+        "implementations/implementation_hs_searchqa_evidence_windows_v7_text_compiler.json": "4fc849941d2d89f92e3cbbd9db502cf441ebc9a0e99f7be0268a8269dc861d35",
+        "implementations/implementation_hs_searchqa_submit_v7_text_compiler.json": "9a2023ce78560340afdd399e61192d7dff51d93c02aa8e83ae435d91d65b729c",
+        "import_bank.py": "32732c78c0c87288bb42c82777c50e6ee0be01313965ee83aa513962b2e06fa9",
+        "integration.py": "05f230619072b087980ce0a8837b4633236f506ad5060bc29f513d6777edfd37",
+        "licenses/SkillOpt_MIT.txt": "9515a04280cf50ce154eb3ab8fa375c7cc5e6b45ea5cb23b7ff3830737020c15",
+        "program_assets/program_hs_searchqa_constraint_check_v7_text_compiler.json": "5b1d3c76f8b2868a6af3921bd334261f47a47d35ebf9b0714e0bb4b91fa71606",
+        "program_assets/program_hs_searchqa_context_index_v7_text_compiler.json": "bffc4e861f31d3b12ff0b63c026090bb67f180ca975546ad5ef2cd63fc0b5f67",
+        "program_assets/program_hs_searchqa_evidence_windows_v7_text_compiler.json": "4ba7f08e7f71eeaddd9f77ecb68c0cd80833fc3373793d2a4f4c0ddc4324e37c",
+        "program_assets/program_hs_searchqa_submit_v7_text_compiler.json": "494319a063b8618f98e923e1ede627f6bf1d03155487b031870ca99bf3993f8e",
+        "programs/constraint_check.py": "ba862233db53c675b517ad965aebbb23f5f5861ca357bc54f1153d356b87f485",
+        "programs/context_index.py": "99d776dee48a24c7a406b5d567efdc3bbd71d715a68c1e082b14bffd2f525526",
+        "programs/evidence_windows.py": "92a92bfab263013ece65e2e6abe162631b7bf2d0c456649962f91888f387f8aa",
+        "programs/submit.py": "f70422057e373999f084b1254e810a42c23678a9230ef44b4d3a8bbf171ff074",
+        "run_bank.py": "6b77f698258d1565d36874073ce35cbae50b59c5c625cc408194807822f9b284",
+        "skills/skill_hs_searchqa_constraint_check_v7_text_compiler.json": "97819712f1d33ef1a2b8c6c22ce2bb069fd02f2cb2d37bf534786a950b15b0ee",
+        "skills/skill_hs_searchqa_context_index_v7_text_compiler.json": "e2ef5398bb0d41e4302e1ec9683e26a2f7c169cdd3f28f08757e341e5575761e",
+        "skills/skill_hs_searchqa_evidence_v7_text_compiler.json": "f4147ac6b78b9316ed7b3cc8706e23ea4f1c30f0ab437bf7a7d75ac484e3d88d",
+        "skills/skill_hs_searchqa_evidence_windows_v7_text_compiler.json": "34ef45a41cc20d0ebc6a37b264554c27ffd4d6261dd1f662ae8addd827b61921",
+        "skills/skill_hs_searchqa_solve_v7_text_compiler.json": "649f617a779e6e41b8754daa32e996407413970fb14f177ec3748673636dcb59",
+        "skills/skill_hs_searchqa_submit_v7_text_compiler.json": "79c47e9be2d260fd6c3cb3a6aedce9515c0559f5f97d315f4420f07b4908ec89",
+        "skills/skill_hs_searchqa_surface_v7_text_compiler.json": "61e1dfce3a055648e1a0bf82d82fb7fb5661f3b06a2d346b7b16046a87f299f3",
+        "workflows/workflow_hs_searchqa_supported_answer_v7_text_compiler.json": "277905d146ada9287cf6d26ca43f1fd0540adf000d10eda3d7179d13d7d0030d"
+      },
+      "size_bytes": 169564
+    }
+  },
+  "frozen": {
+    "v7_text_compiler": {
+      "sha256": "f0123c255607d5333a5e38ead7b0db3c4efbe89a965d47347566cbeb8fb38c27",
+      "files_sha256": {
+        "bank.sqlite3": "9a81624e0f2a3e459e2ee915ae3b220239654f2b4c28ee7cc1a4d11b47666810",
+        "imported_bank.json": "da009b600a3df269d6a39b301425f7a8e8fe19f975092bc9255775b72d04aa91",
+        "manual_manifest.json": "4bf5f2807791d50b37b0c065a146f38878e18d56b40a529e7b7a1d26d3097ccd"
+      },
+      "size_bytes": 135166
+    }
+  },
+  "files": {
+    "/home/yangchengyu/searchqa_v7_kimi_test1400_refusal_finish_20261022/fulltest1400/tasks.json": "960877617f03f105063ef1809912063228517452d97a7ff52096de27c33fb740",
+    "/home/yangchengyu/searchqa_v7_kimi_test1400_refusal_finish_20261022/fulltest1400/schedule.json": "ba64cc53ebaff9e7118d628c4cbe0b9163796b186e674a273cad0d296c0ec3b3",
+    "/home/yangchengyu/searchqa_v7_kimi_test1400_refusal_finish_20261022/fulltest1400/budget_at_start.json": "0bd0b8e611f2d062c1813ac769ec1d495b3bffdfcbfe271bd5ac00133ee92c26",
+    "/home/yangchengyu/searchqa_v7_kimi_test1400_refusal_finish_20261022/fulltest1400/v7_text_compiler/config.json": "e462e9e077e4c2058f9e26d45c760664bf9262dfc75218052a8a8c589cbf16d7",
+    "/mnt/d/T3S_exp/deliveries/searchqa_glm53_refusal_resume_20261020/campaign.py": "dc3b2cd187fcb34fcb361877914c99cc1c670c0ea174f02faeaa8bcac696f805",
+    "/mnt/d/T3S_exp/deliveries/searchqa_glm53_refusal_resume_20261020/runtime.py": "03ee57c63dffa9eb8e3e635c819851ab276316678e9a7067a315b6c490d5140f",
+    "/mnt/d/T3S_exp/deliveries/searchqa_kimi_refusal_finish_20261022/spec.json": "a9933d6858200bdf209f9589cdc2016025f1a4aaf9eeabc16b7764021a98fec6",
+    "/mnt/d/T3S_exp/deliveries/searchqa_kimi_refusal_finish_20261022/campaign_plan.json": "8bc0574499dd11a7df013a916c8a8f6aaec606b6d5a784d0909e6cf2a1c6432c",
+    "/mnt/d/T3S_exp/deliveries/searchqa_kimi_refusal_finish_20261022/provider_outcomes.py": "2f696876447d082a3d5d2600850e56e9968fcb995db867aea33393415d88de1a",
+    "/home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1/searchqa/evaluator_records_test.json": "93b43f777ba6f793f58efbb1cb9d04444784ccb85f42f3051cc0c60f95a0f252",
+    "/home/yangchengyu/searchqa_v7_kimi_test1400_refusal_finish_20261022/authorization.json": "6916c79b20c959d0cb8d381a0a528a0d87f4b7c0e76ccf343f222283743ab5de",
+    "/home/yangchengyu/searchqa_v7_kimi_test1400_refusal_finish_20261022/cost_carryforward_manifest.json": "b0145c931ec7ef14b110bb16469d99d3541b66682585cdc8d2ddc2f08fdc32cd",
+    "/mnt/d/T3S_exp/deliveries/searchqa_kimi_refusal_finish_20261022/continue_kimi.py": "8922d2844f5c9c36092aad4cf0074cd54e8bcf257c9ab592ef9a2576d2b628d5",
+    "/mnt/d/T3S_exp/deliveries/searchqa_kimi_refusal_finish_20261022/check_continuation.py": "b50b3b3890fc4be9903d28ce3174717351574096c08531097ae9bcd226dacef6",
+    "/mnt/d/T3S_exp/deliveries/searchqa_kimi_refusal_finish_20261022/offline_acceptance.json": "f0a3a5529894f2a668fd42224cdead0cd312a554add5f5cbcb10d8c9caf15acf",
+    "/mnt/d/T3S_exp/deliveries/searchqa_kimi_refusal_finish_20261022/parent_snapshot.json": "9fe1107c5260ae0f56629abae1eb3fbec0e26d5fd015b5f51f0501c3115810f6",
+    "/mnt/d/T3S_exp/deliveries/searchqa_kimi_refusal_finish_20261022/remaining_tasks.json": "960877617f03f105063ef1809912063228517452d97a7ff52096de27c33fb740",
+    "/home/yangchengyu/searchqa_v7_crossmodel_test1400_seed42_20261021/kimi_k26/budget.json": "4592cd8440a8e07b81dd15f604e1e0fd1a4dc2c8951d6fb354b4e4fd024aafaa",
+    "/home/yangchengyu/searchqa_v7_crossmodel_test1400_seed42_20261021/kimi_k26/fulltest1400/plan.json": "a17e793edd40ae2a3270daeccf5a8a5e2aea7bfb57c4285489288d3aa2863b8f",
+    "/home/yangchengyu/searchqa_v7_crossmodel_test1400_seed42_20261021/kimi_k26/fulltest1400/v7_text_compiler/test/requests/searchqa:93c5050360564c80b95382bc27b44fb7_attempt1.json": "3e465e40c40bc2841559f89521510618aec2de6e286ad4aa917e4fd8b3e6f120"
+  },
+  "purpose": "Complete unchanged V7 Kimi Test1400: preserve 1390 completed tasks; score one saved explicit HTTP400 content_filter refusal without resending; run the remaining nine canonical tasks with unchanged model and budget.",
+  "limits": {
+    "token_limit": 8000000,
+    "request_limit": 3000,
+    "finish_reserve": 0
+  },
+  "post_test_development": true,
+  "replay_sources": {
+    "v7_text_compiler": {
+      "searchqa:93c5050360564c80b95382bc27b44fb7": {
+        "path": "/home/yangchengyu/searchqa_v7_crossmodel_test1400_seed42_20261021/kimi_k26/fulltest1400/v7_text_compiler/test/requests/searchqa:93c5050360564c80b95382bc27b44fb7_attempt1.json",
+        "audit_digest": "dd35fcc156ca772f9f05a7399c8bf02356a2c17a44fd71e1c4fce202453dfe90",
+        "source_plan_sha256": "a17e793edd40ae2a3270daeccf5a8a5e2aea7bfb57c4285489288d3aa2863b8f",
+        "no_new_http": true
+      }
+    }
+  },
+  "refusal_policy": {
+    "version": "provider-terminal-refusal.v2",
+    "authorization": "用户要求完成 Kimi 实验；保留原额度及明确拒答原始记录。",
+    "refusal": "Official empty-answer scoring; keep in denominator; no retry or prompt alteration.",
+    "billing": "Missing usage stays unknown; retain full original reservation, never fabricate zero usage.",
+    "other_errors": "Stop without scoring; unknown transport/inference failures are not refusals."
+  },
+  "order_offset": 1390,
+  "execution_adapter": {
+    "version": "provider-terminal-refusal.v2",
+    "sha256": "2f696876447d082a3d5d2600850e56e9968fcb995db867aea33393415d88de1a",
+    "core_source_unchanged": true
+  }
+}

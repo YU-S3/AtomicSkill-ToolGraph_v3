@@ -1,0 +1,65 @@
+{
+  "passed": true,
+  "real_http": 0,
+  "checks": [
+    {
+      "mode": "normal",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/kimi_final10_normal_h0zeef4w"
+    },
+    {
+      "mode": "original_replay",
+      "passed": true,
+      "intercepted_requests": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/kimi_final10_original_replay_2aj6tnsl"
+    },
+    {
+      "mode": "http_refusal",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/kimi_final10_http_refusal_gwj4cxsk"
+    },
+    {
+      "mode": "invalid_request",
+      "passed": true,
+      "intercepted_requests": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/kimi_final10_invalid_request_npqap2vl"
+    },
+    {
+      "mode": "server_error",
+      "passed": true,
+      "intercepted_requests": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/kimi_final10_server_error_cgrqg50r"
+    },
+    {
+      "mode": "broken_stream",
+      "passed": true,
+      "intercepted_requests": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/kimi_final10_broken_stream_okobgr1f"
+    }
+  ],
+  "classification": {
+    "negative_http_cases": 5,
+    "original_evidence_immutable": true,
+    "existing_glm_and_kimi_stream_refusals_preserved": true
+  },
+  "source": {
+    "git_sha": "a4b96eedda9dc920afe4b7105b9e37f93cc931e8",
+    "tracked_dirty": false,
+    "source_sha256": "b6d3b0d87e55afdbfd5696c06beec04b73122b0773db0f218278839b7008e072"
+  },
+  "driver_sha256": "dc3b2cd187fcb34fcb361877914c99cc1c670c0ea174f02faeaa8bcac696f805",
+  "launcher_sha256": "8922d2844f5c9c36092aad4cf0074cd54e8bcf257c9ab592ef9a2576d2b628d5",
+  "guard_sha256": "2f696876447d082a3d5d2600850e56e9968fcb995db867aea33393415d88de1a",
+  "test_sha256": "b50b3b3890fc4be9903d28ce3174717351574096c08531097ae9bcd226dacef6",
+  "original_refusal_replayed_without_request": true,
+  "original_unknown_charge_preserved": 77429,
+  "actual_usage_not_fabricated": true
+}

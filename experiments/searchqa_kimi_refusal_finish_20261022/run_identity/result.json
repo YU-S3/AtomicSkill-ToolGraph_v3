@@ -1,0 +1,25 @@
+{
+  "stage": "fulltest1400",
+  "arms": {
+    "v7_text_compiler": {
+      "completed": 1400,
+      "total": 1400,
+      "correct": 1197,
+      "tokens": 5343652,
+      "native_graphs": 1399,
+      "program_calls": 1399,
+      "program_ok": 1399,
+      "new_completed": 10,
+      "inherited_completed": 1390
+    }
+  },
+  "campaign_tokens": 5343652,
+  "campaign_http": 1400,
+  "inflight_or_unmetered": 1,
+  "unknown_reserved_tokens": 77429,
+  "billing_blocked": false,
+  "refusals": 1,
+  "status": "completed",
+  "at": "2026-10-22T04:07:13.318248+00:00",
+  "error": null
+}
