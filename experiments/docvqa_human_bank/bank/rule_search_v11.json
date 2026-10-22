@@ -1,0 +1,25 @@
+{
+  "version": "docvqa.manual.rule-search.v11",
+  "core_source": "typed_v9.json",
+  "directions": [
+    {"id": "phone", "priority": 0, "trigger": "\\b(phone|telephone|fax)\\b", "variants": [
+      {"id": "phone_raw", "text": "For phone or fax, pass the exact visible number to answer_step, including parentheses, hyphens and spaces. Never pre-format it; only the Program applies its declared formatting."}
+    ]},
+    {"id": "cause", "priority": 1, "trigger": "\\b(why|reason|cause)\\b", "variants": [
+      {"id": "cause_clause", "text": "For a reason, locate the clause that explains the event named in the question. Copy that causal clause; stop where the text resumes describing the event or its consequences. Keep any conditions within the cause."},
+      {"id": "cause_slot", "text": "For a why-question, use the question's event as the fixed effect. Fill only its because-slot from the document. A continuation repeating the effect belongs to the question, not the answer; preserve negation and conditions in the reason."}
+    ]},
+    {"id": "percent", "priority": 2, "trigger": "\\b(percent|percentage|rate|proportion|share)\\b", "variants": [
+      {"id": "percent_literal", "text": "For a rate or proportion, distinguish the reported number and unit from the label naming the measure. Preserve bounds, signs and decimal precision. Keep the percent sign attached to its number; do not convert a rate into a percentage."},
+      {"id": "percent_render", "text": "For a rate or proportion, select the reported value with its units and bounds. If it contains one printed numeric percentage, pass that exact span as percentage to answer_step; the Program only joins spacing before %. Other rates remain verbatim."}
+    ]},
+    {"id": "value", "priority": 3, "trigger": "\\b(how many|how much|quantity|amount|balance|intensity|turnover|income)\\b", "variants": [
+      {"id": "value_components", "text": "For a quantity, separate the subject label from the value. The answer consists of the value plus its printed unit and any bound or approximation. Exclude the label and unfilled form slots. A bound is part of the value, not optional context."},
+      {"id": "value_qualified", "text": "For a quantity, determine whether the source gives an exact value, range, bound or approximation before choosing the answer span. Copy the complete quantity of that kind with its unit. Do not reduce a qualified quantity to its number or append its subject label."}
+    ]},
+    {"id": "boundary", "priority": 4, "trigger": "\\b(where|who|whom|institution|association|company|organization|title|job|role|position|schedule|room)\\b", "variants": [
+      {"id": "boundary_column", "text": "For a named field, use neighboring text to locate it, then separate fields by their labels and layout. Return the complete requested field rather than the whole row or sentence. Keep internal name words; adjacent dates, catalogue codes and explanations belong to separate fields."},
+      {"id": "boundary_anchor", "text": "First identify the requested field using the question's anchor. Then delimit that field's own text before copying: stop at the next field or explanatory clause, not at an arbitrary word count. For a location, return its name without the sentence's introductory relation."}
+    ]}
+  ]
+}

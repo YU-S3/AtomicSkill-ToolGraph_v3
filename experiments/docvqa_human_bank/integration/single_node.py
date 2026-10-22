@@ -35,9 +35,9 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
     from atomic_skillgraph.empirical.contracts import digest, program_digest
     config = json.loads(Path(config_path).read_text())
     sources = {'v6': 'single_node.json', 'v7': 'single_node_v7.json'}
-    if skill_revision == 'v10':
+    if skill_revision in ('v10', 'v11'):
         from rule_search import skills
-        source = skills(principle_ids)
+        source = skills(principle_ids, revision=skill_revision)
     elif skill_revision == 'v9':
         if principle_ids:
             raise ValueError('v9 uses its frozen public-intent clauses')
@@ -56,7 +56,7 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
     output.mkdir(parents=True)
     bank = Bank(output, seed=42, environment=config['program_environment'])
     try:
-        assets = [bank.put('skill', item) for item in (source if skill_revision in ('v9', 'v10') else [source])]
+        assets = [bank.put('skill', item) for item in (source if skill_revision in ('v9', 'v10', 'v11') else [source])]
         asset = assets[0]
         if crop:
             bundle = json.loads((ROOT / 'bank/bank.json').read_text())
@@ -67,9 +67,10 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
             program = bank.put('program', program)
             bank.put('implementation', {'skill_id': asset['id'], 'program_id': program['id'],
                 'method_version': METHOD, 'origin': 'human_authored_unqualified'})
-        if skill_revision in ('v9', 'v10'):
+        if skill_revision in ('v9', 'v10', 'v11'):
             from typed_answer import program as typed_program
-            formatter = bank.put('program', typed_program(config['program_environment'], METHOD))
+            formatter = bank.put('program', typed_program(config['program_environment'], METHOD,
+                percentage=skill_revision == 'v11' and 'percent_render' in principle_ids))
             bank.put('implementation', {'skill_id': asset['id'], 'program_id': formatter['id'],
                 'method_version': METHOD, 'origin': 'human_authored_unqualified'})
         manifest = {'method_version': METHOD, 'origin': 'human_authored_only_not_learned',
@@ -77,10 +78,12 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
             'counts': {k: len(bank.all(k)) for k in ('skill', 'program', 'implementation', 'workflow')},
             'program_status': 'optional_image_crop' if crop else 'disabled', 'seed': 42,
             'skill_revision': skill_revision}
-        if skill_revision in ('v9', 'v10'):
+        if skill_revision in ('v9', 'v10', 'v11'):
             manifest.update(typed_submission=True, routing='public_intent_first_match.v1')
-        if skill_revision == 'v10':
+        if skill_revision in ('v10', 'v11'):
             manifest['principle_ids'] = [a['principle_id'] for a in assets if a['principle_id'] != 'core']
+            if skill_revision == 'v11':
+                manifest['percentage_submission'] = 'percent_render' in principle_ids
         if skill_revision == 'v8':
             manifest['principle_ids'] = source['principle_ids']
         (output / 'manual_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
@@ -95,9 +98,13 @@ class SingleNodeDocVQAView:
         from atomic_skillgraph.empirical.contracts import digest
         self.crop_enabled = manifest['program_status'] == 'optional_image_crop'
         self.formatter_enabled = manifest.get('typed_submission', False)
+        self.percentage_enabled = manifest.get('percentage_submission', False)
+        if self.percentage_enabled != (manifest.get('skill_revision') == 'v11' and 'percent_render' in manifest.get('principle_ids', [])):
+            raise ValueError('Percentage submission differs from the frozen rule selection')
+        self.formatter_name = 'typed_submit_percent' if self.percentage_enabled else 'typed_submit'
         count = int(self.crop_enabled) + int(self.formatter_enabled)
         expected = {'skill': 4 if self.formatter_enabled else 1, 'program': count, 'implementation': count, 'workflow': 0}
-        if manifest.get('skill_revision') == 'v10':
+        if manifest.get('skill_revision') in ('v10', 'v11'):
             expected['skill'] = 1 + len(manifest['principle_ids'])
             if sorted(a['principle_id'] for a in bank.all('skill')) != sorted(['core'] + manifest['principle_ids']):
                 raise ValueError('Frozen rule variants differ from the manifest')
@@ -107,7 +114,7 @@ class SingleNodeDocVQAView:
             raise ValueError('Manual Bank content does not match its frozen view')
         self.bank = bank
         self.programs = {Path(p['source_file']).stem: p for p in bank.all('program')}
-        if self.formatter_enabled != (manifest.get('skill_revision') in ('v9', 'v10')):
+        if self.formatter_enabled != (manifest.get('skill_revision') in ('v9', 'v10', 'v11')):
             raise ValueError('Typed submission requires a matching Bank')
         self.view_hash = digest([METHOD, manifest,
             'public_intent_typed_submission.v9' if self.formatter_enabled else 'one_skill_optional_image_crop'])
@@ -233,8 +240,10 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
                     if evidence_interface == 'typed':
                         from typed_answer import contract, instructions
                         can_inspect = s.bank.crop_enabled and materials['remaining_local_executions'] > 1
-                        schema = contract(schema, can_inspect=can_inspect)
-                        prompt += ' ' + instructions(can_inspect)
+                        percentage = s.bank.percentage_enabled and any(a.get('principle_id') == 'percent_render'
+                            for a in s.bank.retrieve_guidance(material.get('goal', '')))
+                        schema = contract(schema, can_inspect=can_inspect, percentage=percentage)
+                        prompt += ' ' + instructions(can_inspect, percentage=percentage)
                     elif evidence_interface == 'compact':
                         for key in ('evidence_text', 'answer_kind'):
                             del schema['properties'][key]
@@ -288,7 +297,7 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy'):
                             'available': sources, 'selected': selected, 'used_results': step['used_results']}
                         s._save_requests()
                     if evidence_interface == 'typed' and step.get('answer_kind', 'verbatim') != 'verbatim':
-                        return {'action': 'call_program', 'name': s.bank.programs['typed_submit']['id'],
+                        return {'action': 'call_program', 'name': s.bank.programs[s.bank.formatter_name]['id'],
                             'arguments': {'kind': step['answer_kind'], 'value': step['answer']},
                             'used_results': step.get('used_results', [])}
                     return step
