@@ -21,11 +21,11 @@ def main():
                         help='Single-node ablation: where the complete manual Skill is delivered')
     parser.add_argument('--evidence-interface', choices=['legacy', 'scoped', 'compact', 'typed'], default='legacy',
                         help='Single-node crop submission: raw result IDs or supplied image handles')
-    parser.add_argument('--submission-contract', choices=['legacy', 'single_tool'], default='legacy',
+    parser.add_argument('--submission-contract', choices=['legacy', 'single_tool', 'direct_submit'], default='legacy',
                         help='Typed submission: one tool answer instead of simultaneous XML and tool instructions')
     parser.add_argument('--skill-revision', choices=['v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12'], default='v6',
                         help='Manual single-node Skill to import into a fresh Bank')
-    parser.add_argument('--principles', default='', help='Comma-separated v8/v10/v11 rule IDs; empty selects only the core')
+    parser.add_argument('--principles', default='', help='Comma-separated v8/v10/v11/v12 rule IDs; empty selects only the core')
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
@@ -41,7 +41,9 @@ def main():
     if args.skill_revision in ('v9', 'v10', 'v11', 'v12') and args.evidence_interface != 'typed':
         parser.error('v9/v10/v11/v12 requires --evidence-interface typed')
     if args.submission_contract != 'legacy' and args.evidence_interface != 'typed':
-        parser.error('--submission-contract single_tool requires --evidence-interface typed')
+        parser.error('--submission-contract requires --evidence-interface typed')
+    if args.submission_contract == 'direct_submit' and args.single_node_crop:
+        parser.error('--submission-contract direct_submit cannot offer crop inspection')
     if args.evidence_interface == 'typed' and not args.single_node:
         parser.error('Typed submission requires single-node evaluation')
     repo, root, campaign = map(lambda x: Path(x).resolve(), (args.repo,args.output,args.campaign))

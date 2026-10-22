@@ -395,7 +395,7 @@ def test_scoped_percentage_program_preserves_semantics(imported, tmp_path, monke
         system.close()
 
 
-@pytest.mark.parametrize('submission_contract', ['legacy', 'single_tool'])
+@pytest.mark.parametrize('submission_contract', ['legacy', 'single_tool', 'direct_submit'])
 def test_single_tool_keeps_one_selected_answer(imported, tmp_path, monkeypatch, submission_contract):
     from typed_answer import select
     from rule_search import skills
@@ -414,8 +414,10 @@ def test_single_tool_keeps_one_selected_answer(imported, tmp_path, monkeypatch, 
         bank_view_factory=lambda b: SingleNodeDocVQAView(b, manifest))
     task = PublicTask('docvqa:fixture', 'synthetic-physical', 'How many accounts are listed?',
         {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
-    sent = http(monkeypatch, [response([{'action': 'finish', 'answer': 'N=18',
-        'answer_kind': 'count', 'evidence_sources': ['page']}], name='answer_step')])
+    args = {'answer': 'N=18', 'answer_kind': 'count', 'evidence_sources': ['page']}
+    if submission_contract != 'direct_submit':
+        args['action'] = 'finish'
+    sent = http(monkeypatch, [response([args], name='answer_step')])
     try:
         before = system.bank.digest()
         with single_node_bridge(guidance_role='system', evidence_interface='typed',
@@ -428,6 +430,12 @@ def test_single_tool_keeps_one_selected_answer(imported, tmp_path, monkeypatch, 
         assert trace['execution']['attempts'][0]['status'] == 'ok'
         assert system.bank.digest() == before
         assert trace['requests'][0]['response']['tool_calls'][0]['arguments']['answer'] == 'N=18'
+        if submission_contract == 'direct_submit':
+            schema = sent[0]['tools'][0]['function']['parameters']
+            assert 'action' not in schema['properties'] and not schema['additionalProperties']
+            assert schema['required'] == ['answer', 'answer_kind', 'evidence_sources']
+            assert 'action' not in trace['requests'][0]['response']['tool_calls'][0]['arguments']
+            assert trace['requests'][0]['submission_binding']['action'] == 'finish'
     finally:
         system.close()
 

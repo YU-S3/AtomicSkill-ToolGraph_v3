@@ -149,7 +149,7 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy', sub
         raise ValueError('guidance_role must be user or system')
     if evidence_interface not in ('legacy', 'scoped', 'compact', 'typed'):
         raise ValueError('Unknown evidence interface')
-    if submission_contract not in ('legacy', 'single_tool') or (submission_contract == 'single_tool' and evidence_interface != 'typed'):
+    if submission_contract not in ('legacy', 'single_tool', 'direct_submit') or (submission_contract != 'legacy' and evidence_interface != 'typed'):
         raise ValueError('Single-tool submission requires the typed interface')
     from atomic_skillgraph.empirical.system import EmpiricalSystem
     old = EmpiricalSystem.agent
@@ -158,6 +158,9 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy', sub
         if stage == 'runtime' and isinstance(s.bank, SingleNodeDocVQAView):
             if s.bank.formatter_enabled != (evidence_interface == 'typed'):
                 raise ValueError('Typed interface and v9 Bank must be selected together')
+            direct_submit = submission_contract == 'direct_submit'
+            if direct_submit and s.bank.crop_enabled:
+                raise ValueError('Direct submission requires a Bank without inspection actions')
             answer_step = name == 'answer_step'
             if name not in ('answer_step', 'finish_answer', None):
                 raise ValueError('Unexpected single-node decision')
@@ -165,7 +168,7 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy', sub
                 'procedural guidance, not document evidence. Apply its relevant rules together. '
                 'Return the requested source text faithfully, without a plan or explanation. '
                 + ('Submit the answer only in answer_step.answer; do not also write an XML or prose answer.'
-                   if submission_contract == 'single_tool' and answer_step and materials['remaining_local_executions'] > 0
+                   if submission_contract != 'legacy' and answer_step and materials['remaining_local_executions'] > 0
                    else s.adapter.answer_contract()))
             material = deepcopy({k: materials[k] for k in ('goal', 'guidance', 'content_parts') if k in materials})
             if not material.get('guidance'):
@@ -247,7 +250,11 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy', sub
                         percentage = s.bank.percentage_enabled and any(a.get('principle_id') == 'percent_render'
                             for a in s.bank.retrieve_guidance(material.get('goal', '')))
                         schema = contract(schema, can_inspect=can_inspect, percentage=percentage)
-                        prompt += ' ' + instructions(can_inspect, percentage=percentage)
+                        prompt += ' ' + instructions(can_inspect, percentage=percentage, direct_submit=direct_submit)
+                        if direct_submit:
+                            del schema['properties']['action']
+                            del schema['allOf']
+                            schema['required'] = ['answer', 'answer_kind', 'evidence_sources']
                     elif evidence_interface == 'compact':
                         for key in ('evidence_text', 'answer_kind'):
                             del schema['properties'][key]
@@ -287,6 +294,9 @@ def single_node_bridge(*, guidance_role='user', evidence_interface='legacy', sub
                     material['remaining_inspections'] = (int(can_inspect) if evidence_interface == 'typed'
                                                          else materials['remaining_local_executions'])
                     step = deepcopy(old(s, stage, prompt, material, name, schema, **kwargs))
+                    if direct_submit:
+                        step['action'] = 'finish'  # The new tool contract has exactly one operation.
+                        s.requests[-1]['submission_binding'] = {'version': 'direct_submit.v1', 'action': 'finish'}
                     if step['action'] == 'inspect':
                         return {'action': 'call_program', 'name': s.bank.programs['image_region']['id'],
                             'arguments': {'image_path': '/workspace/inputs/image_0.png',
