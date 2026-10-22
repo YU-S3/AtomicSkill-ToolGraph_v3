@@ -149,7 +149,9 @@ def validate_config(config):
                 or config.get('budget',{}).get('eval_task_tokens')!=expected_eval_tokens
                 or (span_handoff and finish_cap==32768 and config['experiment'].get('runtime_mode')=='frozen'
                     and runtime_settings.get('max_total_tokens_per_task')!=expected_eval_tokens)
-                or runtime_settings.get('max_completion_tokens')!=32768 or runtime_settings.get('reasoning_effort')!='high'
+                or runtime_settings.get('max_completion_tokens')!=32768
+                or (config['llm'].get('capability_profile',{}).get('reasoning_effort',True)
+                    and runtime_settings.get('reasoning_effort')!='high')
                 or thinking.get('thinking_type')!='enabled'
                 or finish_cap not in finish_caps
                 or overrides.get('finish_only') not in [
@@ -423,7 +425,8 @@ class EmpiricalSystem:
                 thinking_type=settings.get("protocol", {}).get("thinking_type", "enabled"),
                 reasoning_effort=settings.get("reasoning_effort", "high"),
                 request_timeout_seconds=settings.get("request_timeout_seconds", 180),
-                max_retries=settings.get("max_retries", 4), capability_profile=settings.get('capability_profile')))
+                max_retries=settings.get("max_retries", 4), capability_profile=settings.get('capability_profile'),
+                stream=llm.get('stream', False)))
         provider = self.providers[key]
         provider.budget_governor = self.budget_governor
         return provider
