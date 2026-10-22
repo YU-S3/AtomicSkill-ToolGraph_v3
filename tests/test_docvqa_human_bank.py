@@ -395,6 +395,78 @@ def test_scoped_percentage_program_preserves_semantics(imported, tmp_path, monke
         system.close()
 
 
+@pytest.mark.parametrize('submission_contract', ['legacy', 'single_tool'])
+def test_single_tool_keeps_one_selected_answer(imported, tmp_path, monkeypatch, submission_contract):
+    from typed_answer import select
+    from rule_search import skills
+    rules = ['phone_raw', 'quantity_slot', 'filled_amount', 'literal_copy', 'boundary_column']
+    assert [a['principle_id'] for a in select(skills(rules, revision='v12'),
+        'Who received the highest amount?')] == ['core', 'literal_copy']
+    assert [a['principle_id'] for a in select(skills(rules, revision='v12'),
+        'How much money was received?')] == ['core', 'filled_amount']
+    c, _ = imported
+    c['data_dir'] = str(tmp_path / 'v12_bank')
+    config = tmp_path / 'v12_config.json'; config.write_text(json.dumps(c))
+    prepare_single(ROOT, config, c['data_dir'], skill_revision='v12', principle_ids=rules)
+    manifest = json.loads((Path(c['data_dir']) / 'manual_manifest.json').read_text())
+    adapter = AnswerAdapter('docvqa', {'docvqa:fixture': {'answers': ['18']}}, c)
+    system = EmpiricalSystem(c, harness=adapter, readonly=True,
+        bank_view_factory=lambda b: SingleNodeDocVQAView(b, manifest))
+    task = PublicTask('docvqa:fixture', 'synthetic-physical', 'How many accounts are listed?',
+        {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
+    sent = http(monkeypatch, [response([{'action': 'finish', 'answer': 'N=18',
+        'answer_kind': 'count', 'evidence_sources': ['page']}], name='answer_step')])
+    try:
+        before = system.bank.digest()
+        with single_node_bridge(guidance_role='system', evidence_interface='typed',
+                submission_contract=submission_contract):
+            trace = system.run_task(task, learn=False)
+        assert len(sent) == 1 and trace['execution']['prediction'] == '18'
+        prompt = sent[0]['messages'][0]['content']
+        assert ('<answer>' in prompt) == (submission_contract == 'legacy')
+        assert trace['execution']['reason'] == 'program_submitted'
+        assert trace['execution']['attempts'][0]['status'] == 'ok'
+        assert system.bank.digest() == before
+        assert trace['requests'][0]['response']['tool_calls'][0]['arguments']['answer'] == 'N=18'
+    finally:
+        system.close()
+
+
+@pytest.mark.parametrize('diagnostic', [
+    'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?',
+    'error during connect: connection refused',
+])
+def test_daemon_failure_stops_before_answer_rewrite(imported, tmp_path, monkeypatch, diagnostic):
+    from atomic_skillgraph.empirical.checkpoint import TaskCheckpoint
+    c, _ = imported
+    c['data_dir'] = str(tmp_path / 'outage_bank')
+    config = tmp_path / 'outage_config.json'; config.write_text(json.dumps(c))
+    prepare_single(ROOT, config, c['data_dir'], skill_revision='v12', principle_ids=['phone_raw'])
+    manifest = json.loads((Path(c['data_dir']) / 'manual_manifest.json').read_text())
+    adapter = AnswerAdapter('docvqa', {'docvqa:fixture': {'answers': ['18']}}, c)
+    system = EmpiricalSystem(c, harness=adapter, readonly=True,
+        bank_view_factory=lambda b: SingleNodeDocVQAView(b, manifest))
+    system.checkpoint = TaskCheckpoint(tmp_path / 'checkpoint')
+    task = PublicTask('docvqa:fixture', 'synthetic-physical', 'How many accounts are listed?',
+        {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
+    sent = http(monkeypatch, [response([{'action': 'finish', 'answer': '18',
+        'answer_kind': 'count', 'evidence_sources': ['page']}], name='answer_step')])
+    # Simulate only the Docker CLI's failure, never execute a Program on the host.
+    monkeypatch.setattr(system.worker, 'command', lambda *args: [sys.executable, '-c',
+        'import sys; sys.stderr.write(' + repr(diagnostic) + '); sys.exit(1)'])
+    try:
+        with single_node_bridge(guidance_role='system', evidence_interface='typed', submission_contract='single_tool'):
+            with pytest.raises(OSError, match='Docker control failed'):
+                system.run_task(task, learn=False)
+        assert len(sent) == 1
+        cached = list((system.checkpoint.root / 'responses').glob('*.json'))
+        assert len(cached) == 1 and '18' in cached[0].read_text()
+        assert system.checkpoint.state['program_started']  # Explicit recovery review; never blind replay.
+        assert not system.worker.invocations
+    finally:
+        system.close()
+
+
 def test_real_worker_programs_and_crop_wire(imported, monkeypatch):
     c, manifest = imported
     adapter = AnswerAdapter('docvqa', {'docvqa:fixture': {'answers': ['74216']}}, c)

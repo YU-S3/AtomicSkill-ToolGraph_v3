@@ -1,0 +1,22 @@
+{
+  "version": "docvqa.manual.rule-search.v12",
+  "core_source": "typed_v9.json",
+  "directions": [
+    {"id": "phone", "priority": 0, "trigger": "\\b(phone|telephone|fax)\\b", "variants": [
+      {"id": "phone_raw", "text": "For phone or fax, pass the exact visible number to answer_step, including parentheses, hyphens and spaces. Never pre-format it; only the Program applies its declared formatting."}
+    ]},
+    {"id": "quantity", "priority": 1, "trigger": "^\\s*how many\\b|^\\s*what\\b.*\\b(quantity|intensity)\\b", "variants": [
+      {"id": "quantity_slot", "text": "A quantity answer fills the question's value slot. Copy the value with its printed unit and bound; the name of the measured item and the question's repeated context stay outside that slot. A bound such as more than is part of the value."}
+    ]},
+    {"id": "form_amount", "priority": 2, "trigger": "^\\s*how much\\b.*\\b(money|paid|received)\\b", "variants": [
+      {"id": "filled_amount", "text": "For an amount on a form, copy all filled amount components and their units. A preprinted component whose value is only a blank or placeholder adds no amount. Preserve an explicitly written zero, sign or bound."}
+    ]},
+    {"id": "literal", "priority": 3, "trigger": "\\b(written|spelled|spelling)\\b|^\\s*(who|whom)\\b.*\\b(highest|lowest|greatest|least|maximum|minimum)\\b", "variants": [
+      {"id": "literal_copy", "text": "Transcribe the selected name or lettering as printed, not in conventional edited form. Do not add an abbreviation's usual period or a space inside visibly joined lettering. Preserve punctuation that is actually present."}
+    ]},
+    {"id": "boundary", "priority": 4, "trigger": "\\b(where|who|whom|institution|association|company|organization|title|job|role|position|schedule|room)\\b", "variants": [
+      {"id": "boundary_column", "text": "For a named field, use neighboring text to locate it, then separate fields by their labels and layout. Return the complete requested field rather than the whole row or sentence. Keep internal name words; adjacent dates, catalogue codes and explanations belong to separate fields."},
+      {"id": "field_boundary", "text": "First identify the field requested by the question. Use other columns and descriptions only to locate it. In a table, copy that field's cell without adjacent columns. In a name block, distinguish the entity name from a separate department or address; a line break alone does not end a name. For a numbered item, exclude the description used to identify it."}
+    ]}
+  ]
+}

@@ -21,7 +21,9 @@ def main():
                         help='Single-node ablation: where the complete manual Skill is delivered')
     parser.add_argument('--evidence-interface', choices=['legacy', 'scoped', 'compact', 'typed'], default='legacy',
                         help='Single-node crop submission: raw result IDs or supplied image handles')
-    parser.add_argument('--skill-revision', choices=['v6', 'v7', 'v8', 'v9', 'v10', 'v11'], default='v6',
+    parser.add_argument('--submission-contract', choices=['legacy', 'single_tool'], default='legacy',
+                        help='Typed submission: one tool answer instead of simultaneous XML and tool instructions')
+    parser.add_argument('--skill-revision', choices=['v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12'], default='v6',
                         help='Manual single-node Skill to import into a fresh Bank')
     parser.add_argument('--principles', default='', help='Comma-separated v8/v10/v11 rule IDs; empty selects only the core')
     parser.add_argument('--resume', action='store_true')
@@ -34,10 +36,12 @@ def main():
         parser.error('--evidence-interface requires --single-node-crop')
     if args.skill_revision != 'v6' and (not args.single_node or args.bank):
         parser.error('--skill-revision selects a fresh single-node Bank; omit --bank')
-    if args.principles and (args.skill_revision not in ('v8', 'v10', 'v11') or args.bank):
-        parser.error('--principles requires a fresh v8/v10/v11 Bank')
-    if args.skill_revision in ('v9', 'v10', 'v11') and args.evidence_interface != 'typed':
-        parser.error('v9/v10/v11 requires --evidence-interface typed')
+    if args.principles and (args.skill_revision not in ('v8', 'v10', 'v11', 'v12') or args.bank):
+        parser.error('--principles requires a fresh v8/v10/v11/v12 Bank')
+    if args.skill_revision in ('v9', 'v10', 'v11', 'v12') and args.evidence_interface != 'typed':
+        parser.error('v9/v10/v11/v12 requires --evidence-interface typed')
+    if args.submission_contract != 'legacy' and args.evidence_interface != 'typed':
+        parser.error('--submission-contract single_tool requires --evidence-interface typed')
     if args.evidence_interface == 'typed' and not args.single_node:
         parser.error('Typed submission requires single-node evaluation')
     repo, root, campaign = map(lambda x: Path(x).resolve(), (args.repo,args.output,args.campaign))
@@ -92,6 +96,8 @@ def main():
             config['experiment']['docvqa_human_reference']['guidance_role'] = args.guidance_role
             config['experiment']['docvqa_human_reference']['evidence_interface'] = args.evidence_interface
             config['experiment']['docvqa_human_reference']['skill_revision'] = args.skill_revision
+            if args.submission_contract != 'legacy':
+                config['experiment']['docvqa_human_reference']['submission_contract'] = args.submission_contract
         config['budget'].update(limits,train_task_tokens=96000,eval_task_tokens=96000)
         config['budget'].pop('train_solve_tokens',None);config['budget'].pop('train_learning_tokens',None)
         config['program_worker']['record_execution_receipt']=True
@@ -111,11 +117,11 @@ def main():
         if manual['method_version']!=METHOD:raise ValueError('Bank/view version differs')
         if args.single_node:
             config['experiment']['docvqa_human_reference']['skill_revision'] = manual.get('skill_revision', 'v6')
-            if (manual.get('skill_revision') in ('v9', 'v10', 'v11')) != (args.evidence_interface == 'typed'):
+            if (manual.get('skill_revision') in ('v9', 'v10', 'v11', 'v12')) != (args.evidence_interface == 'typed'):
                 raise ValueError('Typed submission and matching Bank must be selected together')
             if manual.get('typed_submission'):
                 config['experiment']['docvqa_human_reference']['programs'] = 'typed_final_answer_and_optional_crop'
-            if manual.get('skill_revision') in ('v8', 'v10', 'v11'):
+            if manual.get('skill_revision') in ('v8', 'v10', 'v11', 'v12'):
                 config['experiment']['docvqa_human_reference']['principle_ids'] = manual['principle_ids']
         if args.single_node and manual['program_status']!=('optional_image_crop' if args.single_node_crop else 'disabled'):
             raise ValueError('Requested crop mode differs from the frozen Bank')
@@ -139,7 +145,8 @@ def main():
         log.freeze(root/'bank',newly_created=not (root/'final_frozen_manifest.json').exists())
         try:
             with image_result_bridge(**({'guidance_role': args.guidance_role,
-                'evidence_interface': args.evidence_interface} if args.single_node else {})):
+                'evidence_interface': args.evidence_interface,
+                'submission_contract': args.submission_contract} if args.single_node else {})):
                 summary=run(config,tasks,root/split,readonly=True,resume=args.resume,
                     bank_view_factory=factory,formal_log=log,budget_governor=governor,
                     task_metadata={x['task_id']:x['task_metadata'] for x in canonical},freeze_on_complete=False)

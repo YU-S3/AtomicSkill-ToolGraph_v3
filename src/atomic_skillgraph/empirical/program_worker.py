@@ -263,7 +263,8 @@ class ProgramWorker:
                     if process.poll() is None: process.kill()
                     process.wait(timeout=10)
                     for stream in (process.stdin, process.stdout, process.stderr): stream.close()
-                if not finished and process.returncode and b'docker:' in diagnostic:
+                if not finished and process.returncode and any(marker in diagnostic for marker in (
+                        b'docker:', b'Cannot connect to the Docker daemon', b'error during connect:')):
                     raise OSError('Docker control failed: ' + diagnostic.decode(errors='replace'))
             if not isinstance(result, dict) or result.get('status') != 'execution_error':
                 validate_return(result)

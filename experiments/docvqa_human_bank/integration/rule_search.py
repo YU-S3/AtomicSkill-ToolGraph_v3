@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1] / 'bank'
 
 
 def skills(selected, revision='v10'):
-    if revision not in ('v10', 'v11'):
+    if revision not in ('v10', 'v11', 'v12'):
         raise ValueError('Unknown frozen rule catalog')
     catalog = json.loads((ROOT / f'rule_search_{revision}.json').read_text())
     core = json.loads((ROOT / catalog['core_source']).read_text())['core']
