@@ -51,6 +51,9 @@ def test_streamed_native_computation_and_finish(tmp_path,monkeypatch,model):
         assert wire['max_tokens']==32768 and 'seed' not in wire
         assert ('reasoning_effort' in wire)==(model=='glm53_flash')
         assert ('stream_options' in wire)==(model=='kimi_k26')
+        if model=='kimi_k26':
+            assert wire['tools'][0]['function']['parameters']['properties']['action']['type']=='string'
+            assert 'oneOf' not in json.dumps(wire['tools'])
         body=json.loads(wire['messages'][1]['content'])
         assert body.get('human_frontier_skill_ids') and not body['calls']['programs']
         action={'action':'call_tool','name':'execute_python',
@@ -116,3 +119,29 @@ def test_complete_two_model_campaign(tmp_path,monkeypatch):
     assert c.sha(runner.PARENT/'budget.json')==parent_hash
     assert {r['model_key'] for r in c.read(root/'comparison.json')['results']}==set(runner.MODELS)
     assert all(c.read(Path(e['path'])/'freeze_record.json')['unchanged'] for e in plan['episodes'])
+
+
+def test_schema_refusal_prefix_keeps_full_reservation(tmp_path,monkeypatch):
+    runner.fixed.bind_runner(True);c=runner.common
+    monkeypatch.setattr(c,'code_identity',lambda:{'git_sha':'offline-fixture','tracked_dirty':False,'source_sha256':'offline-fixture'})
+    failed=Path('/home/yangchengyu/officeqa_humanstrong_v13_rules_crossmodel_test102_seed42_20261022')
+    before=c.sha(failed/'budget.json')
+    runner.prepare(tmp_path/'recovery',failed)
+    plan=c.verify(tmp_path/'recovery');ledger=c.read(tmp_path/'recovery/budget.json')
+    assert plan['inherited_used_or_reserved']==190082144
+    assert plan['ledger_limits']['token_limit']==234263648
+    assert c.read(failed/'budget.json')['attempts']==ledger['attempts']
+    assert not c.billing_blocked(ledger) and c.sha(failed/'budget.json')==before
+
+
+def test_wire_schema_keeps_host_validation():
+    from atomic_skillgraph.agents.moonshot_schema import wire_schema
+    from atomic_skillgraph.empirical.prompts import STEP
+    from jsonschema import Draft202012Validator
+    before=json.dumps(STEP);wire=wire_schema(STEP)
+    assert json.dumps(STEP)==before
+    for action in [{'action':'finish','answer':'5'}, {'action':'finish','answer':5},
+                   {'action':'call_tool','name':'execute_python','arguments':{'source':'print(5)'}},
+                   {'action':'complete_node','outputs':{'number':5},'output_refs':{'number':{'result_id':'r1','path':['computed','number']}}}]:
+        assert Draft202012Validator(STEP).is_valid(action) and Draft202012Validator(wire).is_valid(action)
+    assert not Draft202012Validator(STEP).is_valid({'action':'invented'})

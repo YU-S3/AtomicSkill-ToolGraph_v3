@@ -42,7 +42,7 @@ def model_config(original, model):
     return common.validate_config(cfg)
 
 
-def prepare(root):
+def prepare(root, failed_prefix=None):
     if root.exists(): raise ValueError('Use a fresh campaign; never overwrite')
     code = common.code_identity()
     if code['tracked_dirty'] or not code['git_sha']: raise ValueError('Commit before preparing')
@@ -54,6 +54,34 @@ def prepare(root):
     assert len(rows) == 102 and {e['arm'] for e in rows} == {'rules'}
     assert [e['task_id'] for e in rows] == [t['task_id'] for t in tasks['tasks']]
     assert all(common.sha(p) == sha for p,sha in original['protected_files'].items())
+    billing_parent, failure_files = PARENT, []
+    if failed_prefix is not None:
+        billing_parent = Path(failed_prefix).resolve()
+        failed = common.read(billing_parent/'plan.json')
+        assert common.sha(billing_parent/'plan.json') == common.read(billing_parent/'plan_identity.json')['sha256']
+        assert failed['base_run'] == str(PARENT) and failed['package_identity'] == original['package_identity']
+        assert common.read(billing_parent/'launch_status.json')['status'] == 'failed'
+        assert not any((Path(e['path'])/'summary.json').exists() for e in failed['episodes'])
+        assert all(common.sha(p)==h for p,h in failed['protected_files'].items())
+        prefix = common.read(billing_parent/'budget_prefix.json')['attempts']
+        ledger = common.read(billing_parent/'budget.json')
+        added = {k:v for k,v in ledger['attempts'].items() if k not in prefix}
+        requests = [p for e in failed['episodes'] for p in (Path(e['path'])/'requests').glob('*.json')]
+        attempts = [a for p in requests for q in common.read(p)['requests'] for a in q.get('http_attempts',[])]
+        assert len(added)==len(attempts)==1 and attempts[0]['request_id'] in added
+        attempt = attempts[0]
+        error = attempt['response_diagnostic'].get('error',{})
+        assert attempt['http_status']==400 and error.get('type')=='invalid_request_error'
+        assert 'tools.function.parameters' in error.get('message','') and attempt.get('raw_usage') is None
+        assert all(v['status']=='unknown_billing' and 'accounted_tokens' not in v for v in added.values())
+        recovery = ledger.setdefault('inherited_reservation_recovery',
+            {'schema':'billing-reservation-recovery.v1','authorization':'Retain finite failed-start reservations within the authorized Test budget.','attempts':{}})
+        for key,value in added.items():
+            recovery['attempts'][key] = {'entry_hash':common.digest(value),'reserved_tokens':value['reserved_tokens']}
+        assert not common.billing_blocked(ledger)
+        locks = sorted(set(locks+failed['locks']+[str(billing_parent/'.run.lock')]))
+        failure_files = [*requests,*[billing_parent/name for name in
+            ('budget.json','plan.json','plan_identity.json','launch_status.json','last_error.json')]]
     used = sum(map(common.charge, ledger['attempts'].values()))
     cap = len(rows)*len(MODELS)*TASK_CAP
     if used+cap > CEILING: raise ValueError('Cumulative authority insufficient')
@@ -93,9 +121,9 @@ def prepare(root):
                  PARENT/'comparison.json',PARENT/'billing_result.json',root/'tasks.json',
                  root/'base_config.json',root/'budget_prefix.json',Path(__file__).resolve(),
                  *[MODEL_CONFIGS/(m+'_config.json') for m in MODELS],
-                 *[root/(m+'_config.json') for m in MODELS]):
+                 *[root/(m+'_config.json') for m in MODELS], *failure_files):
         protected[str(path)] = common.sha(path)
-    plan = {**original,'created_at':common.utc(),'code':code,'base_run':str(PARENT),
+    plan = {**original,'created_at':common.utc(),'code':code,'base_run':str(billing_parent),
         'inference_config_source':str(PARENT),'episodes':episodes,'protected_files':protected,
         'ledger_limits':limits,'inherited_used_or_reserved':used,'new_token_cap':cap,'new_http_cap':http_cap,
         'http_cap_basis':{'decisions_per_episode':decisions,'requests_per_decision_including_repair':2,
@@ -109,6 +137,7 @@ def prepare(root):
         'authorization':'2026-10-22 user requested the same Bank on kimi-k2.6 and glm-5.3-flash. '
             'One full Test102 per model within existing cumulative 262M; no added off arm, learning or Bank edits. '
             'Preserve all historical costs and unknown reservations. No automatic repeats.',
+        'failed_start_recovery':str(billing_parent) if failed_prefix else None,
         'comparison_caveat':'Human-authored rules and deterministic selector, unchanged from DeepSeek. '
             'Development-exposed Test; not a Planner-selected or naturally learned Ours result.',
         'provider_source':PROVIDER_SOURCE,'runtime_changes':['tested provider dialect/stream adapter',
@@ -161,9 +190,10 @@ if __name__ == '__main__':
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('action',choices=('prepare','check','launch','run','status'))
     ap.add_argument('--root',required=True)
+    ap.add_argument('--failed-prefix')
     ap.add_argument('--env-file',default='/mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3/.env')
     args=ap.parse_args();root=Path(args.root).resolve();fixed.bind_runner(True)
-    if args.action=='prepare':prepare(root)
+    if args.action=='prepare':prepare(root,args.failed_prefix)
     elif args.action=='check':common.verify(root);print('Frozen source, both model configs, all inputs and Bank snapshots verified; zero HTTP.')
     elif args.action=='status':print(json.dumps(status(root),ensure_ascii=False,indent=2))
     elif args.action=='run':sys.exit(execute(root,args.env_file))

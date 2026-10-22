@@ -234,7 +234,7 @@ class OpenAICompatibleProvider:
             payload.update(temperature=1.0,top_p=0.95)
         if normalized_tools:
             if not self.config.capability_profile['tools']: raise ValueError('Provider native tools unsupported')
-            payload["tools"] = [tool.to_openai() for tool in normalized_tools]
+            payload["tools"] = self._wire_tools(normalized_tools)
             if self.config.dialect=='glm_53_chat' and self.config.stream:payload['tool_stream']=True
         if tool_choice is not None:
             if self.config.dialect=='glm_53_chat':
@@ -260,6 +260,14 @@ class OpenAICompatibleProvider:
         if self.config.generation_seed is not None:
             payload['seed'] = self.config.generation_seed
         return payload
+
+    def _wire_tools(self, tools):
+        values = [tool.to_openai() for tool in tools]
+        if self.config.dialect == 'moonshot_k2_chat':
+            from .moonshot_schema import wire_schema
+            for value in values:
+                value['function']['parameters'] = wire_schema(value['function']['parameters'])
+        return values
 
     def input_measure(self, payload):
         from .image_input import measure
@@ -339,8 +347,13 @@ class OpenAICompatibleProvider:
                 self._request_context.final_payload_audit['tool_choice_adaptation']={
                     'requested':copy.deepcopy(tool_choice),'sent':payload['tool_choice'],
                     'reason':'Provider auto-only API; single submission Schema with unchanged host validation'}
-        if payload.get('tools', []) != [tool.to_openai() for tool in normalized_tools]:
+        requested_tools = [tool.to_openai() for tool in normalized_tools]
+        if payload.get('tools', []) != self._wire_tools(normalized_tools):
             raise ValueError('Final provider tools differ from requested tools')
+        if payload.get('tools', []) != requested_tools:
+            self._request_context.final_payload_audit['schema_adaptation'] = {
+                'version':'moonshot.schema-syntax.v1','requested_tools':requested_tools,
+                'host_validation':'Original schema retained; only wire syntax uses typed enums and anyOf.'}
         api_key = self.config.resolve_api_key()
         headers = {
             "Authorization": f"Bearer {api_key}",
