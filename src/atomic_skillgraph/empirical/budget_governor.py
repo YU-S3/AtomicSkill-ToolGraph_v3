@@ -34,6 +34,22 @@ def input_token_bound(payload):
     return len(json.dumps(payload, allow_nan=False).encode('utf-8'))
 
 
+def output_token_bound(payload):
+    """Reserve Qwen's separate reasoning as well as its body-only output cap."""
+    cap = payload.get('max_tokens', payload.get('max_completion_tokens', 0))
+    if payload.get('model') == 'qwen3.8-flash' and 'max_tokens' in payload:
+        if 'max_completion_tokens' in payload:
+            raise ValueError('Conflicting Qwen output caps')
+        if payload.get('enable_thinking', True):
+            budget = payload.get('thinking_budget')
+            if type(budget) is not int or not 1 <= budget <= 262144 or 'reasoning_effort' in payload:
+                raise ValueError('Qwen body-only output requires one explicit thinking budget')
+            cap += budget
+        # Official API allows a discrepancy of up to ten generated tokens.
+        cap += 10
+    return cap
+
+
 class BudgetGovernor:
     def __init__(self, path, *, token_limit=5000000, finish_reserve=500000, request_limit=205,
                  proposal_repair_limit=None, validation_limit=None):
@@ -86,7 +102,7 @@ class BudgetGovernor:
             from ..agents.image_input import measure
             image_audit = measure(payload, context.get('image_input'))
             estimated = image_audit['input_token_bound']
-            reserved = estimated + payload.get('max_tokens', payload.get('max_completion_tokens', 0))
+            reserved = estimated + output_token_bound(payload)
             used = sum(a.get('accounted_tokens', a['reserved_tokens']) for a in attempts.values())
             cap = self.limits['token_limit'] - (0 if context.get('purpose') == 'finish_only' else self.limits['finish_reserve'])
             scope = context.get('episode_scope')

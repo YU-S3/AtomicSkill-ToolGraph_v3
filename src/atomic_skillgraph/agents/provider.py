@@ -68,16 +68,22 @@ class OpenAICompatibleConfig:
     capability_profile: dict | None = None
     image_input: dict | None = None
     stream: bool = False
+    thinking_budget: int | None = None
 
     def __post_init__(self) -> None:
         from .image_input import validate_policy
         validate_policy(self.image_input)
         if type(self.stream) is not bool:
             raise ValueError('stream must be boolean')
+        if self.thinking_budget is not None and (self.dialect!='qwen_38_chat' or
+                self.thinking_type!='enabled' or type(self.thinking_budget) is not int or
+                not 1<=self.thinking_budget<=262144):
+            raise ValueError('Explicit thinking budget requires enabled Qwen3.8 thinking in 1..262144')
         if self.image_input is not None and 'image' not in self.input_modalities:
             raise ValueError('Image input policy requires a visual capability lock')
-        defaults = {'tools':True, 'thinking':self.dialect in {'deepseek_v4_chat', 'moonshot_k2_chat', 'glm_53_chat'},
-                    'reasoning_effort':self.dialect in {'deepseek_v4_chat','glm_53_chat'}, 'generation_seed':False}
+        defaults = {'tools':True, 'thinking':self.dialect in {'deepseek_v4_chat', 'moonshot_k2_chat', 'glm_53_chat', 'minimax_m3_chat', 'qwen_38_chat'},
+                    'reasoning_effort':self.dialect in {'deepseek_v4_chat','glm_53_chat','qwen_38_chat'},
+                    'generation_seed':self.dialect=='qwen_38_chat'}
         if self.capability_profile is not None and (not isinstance(self.capability_profile,dict) or
                 set(self.capability_profile)-set(defaults) or any(type(v) is not bool for v in self.capability_profile.values())):
             raise ValueError('Invalid provider capability profile')
@@ -89,7 +95,7 @@ class OpenAICompatibleConfig:
             raise ValueError("base_url must be an absolute http(s) URL")
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError("base_url must not contain credentials, query parameters, or fragments")
-        if self.dialect not in {'deepseek_v4_chat', 'openai_chat', 'moonshot_k2_chat', 'glm_53_chat'}:
+        if self.dialect not in {'deepseek_v4_chat', 'openai_chat', 'moonshot_k2_chat', 'glm_53_chat', 'minimax_m3_chat', 'qwen_38_chat'}:
             raise ValueError('Unsupported provider dialect')
         if self.dialect == 'moonshot_k2_chat' and (self.capability_profile['reasoning_effort'] or self.capability_profile['generation_seed']):
             raise ValueError('Moonshot K2 has no configured reasoning_effort or generation seed support')
@@ -104,6 +110,23 @@ class OpenAICompatibleConfig:
                 raise ValueError('GLM 5.3 generation seed is not established by the official API contract')
             if self.token_limit_field!='max_tokens' or type(self.max_completion_tokens) is not int or not 1<=self.max_completion_tokens<=131072:
                 raise ValueError('GLM 5.3 requires max_tokens in 1..131072')
+        if self.dialect in {'minimax_m3_chat','qwen_38_chat'}:
+            expected = 'MiniMax-M3' if self.dialect=='minimax_m3_chat' else 'qwen3.8-flash'
+            maximum = 524288 if self.dialect=='minimax_m3_chat' else 131072
+            if self.model!=expected or not self.capability_profile['thinking']:
+                raise ValueError('Model-specific dialect requires '+expected+' with explicit thinking control')
+            fields={'max_completion_tokens','max_tokens'} if self.dialect=='qwen_38_chat' else {'max_completion_tokens'}
+            if self.token_limit_field not in fields or type(self.max_completion_tokens) is not int or not 1<=self.max_completion_tokens<=maximum:
+                raise ValueError(expected+' requires a total max_completion_tokens cap in 1..'+str(maximum))
+            if self.dialect=='minimax_m3_chat' and (self.capability_profile['reasoning_effort'] or self.capability_profile['generation_seed']):
+                raise ValueError('MiniMax-M3 has no effective reasoning_effort or documented generation seed')
+            if self.dialect=='qwen_38_chat':
+                if self.token_limit_field=='max_tokens' and self.thinking_type=='enabled' and self.thinking_budget is None:
+                    raise ValueError('Qwen body-only cap requires an explicit separately reserved thinking budget')
+                if not self.capability_profile['reasoning_effort']:
+                    raise ValueError('Qwen3.8 reasoning effort must be explicitly supported')
+                if self.generation_seed is not None and (type(self.generation_seed) is not int or not 0<=self.generation_seed<2**31):
+                    raise ValueError('Qwen generation seed must be an integer in 0..2^31-1')
         if self.token_limit_field not in {'max_tokens', 'max_completion_tokens'}:
             raise ValueError('Unsupported token limit field')
         if not self.model.strip() or not self.api_key_env.strip():
@@ -112,7 +135,7 @@ class OpenAICompatibleConfig:
             raise ValueError("max_completion_tokens must be positive")
         if self.thinking_type not in {"enabled", "disabled"}:
             raise ValueError("thinking_type must be enabled or disabled")
-        if self.reasoning_effort not in {"low", 'medium', "high", "max"}:
+        if self.reasoning_effort not in ({'low','medium','high','max','xhigh'} if self.dialect=='qwen_38_chat' else {"low", 'medium', "high", "max"}):
             raise ValueError('Unsupported reasoning effort')
         if self.connect_timeout_seconds <= 0 or self.request_timeout_seconds <= 0:
             raise ValueError("provider timeouts must be positive")
@@ -155,7 +178,7 @@ class OpenAICompatibleConfig:
             "max_completion_tokens": self.max_completion_tokens,
             "http_token_limit_field": self.token_limit_field,
             "thinking_type": self.thinking_type if self.capability_profile['thinking'] else None,
-            "reasoning_effort": self.reasoning_effort if self.capability_profile['reasoning_effort'] else None,
+            "reasoning_effort": self.wire_reasoning_effort if self.capability_profile['reasoning_effort'] and self.thinking_budget is None else None,
             "connect_timeout_seconds": self.connect_timeout_seconds,
             "request_timeout_seconds": self.request_timeout_seconds,
             "max_retries": self.max_retries,
@@ -164,8 +187,26 @@ class OpenAICompatibleConfig:
             **({'glm_protocol':{'version':'bigmodel.glm53.chat.v1','clear_thinking':False,
                 'temperature':1.0,'top_p':0.95,'tool_choice':'auto only; single named submission mapped and host validated',
                 'tool_stream':self.stream,'stream_usage':'native final chunk; no stream_options'}} if self.dialect=='glm_53_chat' else {}),
+            **({'minimax_protocol':{'version':'minimax.m3.chat.v1','thinking_type':'adaptive' if self.thinking_type=='enabled' else 'disabled',
+                'reasoning_split':True,'service_tier':'standard','fixed_temperature':1,'fixed_top_p':0.95,
+                'tool_choice':'omitted: native tools with host-validated single submission',
+                'output_cap_includes_reasoning':True}} if self.dialect=='minimax_m3_chat' else {}),
+            **({'qwen_protocol':{'version':'qwen.3.8.flash.body-budget.v2' if self.thinking_budget is not None else 'qwen.3.8.flash.chat.v1','enable_thinking':self.thinking_type=='enabled',
+                'preserve_thinking':True,'requested_reasoning_effort':self.reasoning_effort,
+                'sent_reasoning_effort':self.wire_reasoning_effort if self.thinking_type=='enabled' and self.thinking_budget is None else None,
+                'tool_choice':'auto for a single named submission while thinking; host validation unchanged',
+                'output_cap_includes_reasoning':self.token_limit_field=='max_completion_tokens','temperature':0.6 if self.thinking_type=='enabled' else None,
+                **({'thinking_budget':self.thinking_budget,'body_token_cap':self.max_completion_tokens if self.token_limit_field=='max_tokens' else None,
+                    'effort_control':'thinking_budget; reasoning_effort omitted to avoid conflicting parameters'} if self.thinking_budget is not None else {})}}
+                if self.dialect=='qwen_38_chat' else {}),
             **({'image_input':dict(self.image_input)} if self.image_input else {}),
         }
+
+    @property
+    def wire_reasoning_effort(self):
+        if self.dialect=='qwen_38_chat' and self.reasoning_effort in {'high','max'}:
+            return 'xhigh'
+        return self.reasoning_effort
 
 
 class OpenAICompatibleProvider:
@@ -210,7 +251,7 @@ class OpenAICompatibleProvider:
         tool_choice: dict | str | None = None,
     ) -> dict[str, Any]:
         normalized_messages = _validate_deepseek_messages(messages, allow_images='image' in self.config.input_modalities)
-        if self.config.dialect not in {'deepseek_v4_chat', 'moonshot_k2_chat', 'glm_53_chat'}:
+        if self.config.dialect not in {'deepseek_v4_chat', 'moonshot_k2_chat', 'glm_53_chat', 'minimax_m3_chat', 'qwen_38_chat'}:
             normalized_messages = [{k:v for k,v in m.items() if k != 'reasoning_content'} for m in normalized_messages]
         normalized_tools = list(tools or [])
         if not all(isinstance(tool, NativeToolSpec) for tool in normalized_tools):
@@ -225,19 +266,42 @@ class OpenAICompatibleProvider:
         if self.config.stream:
             payload['stream']=True
             if self.config.dialect!='glm_53_chat':payload['stream_options']={'include_usage':True}
-        if self.config.capability_profile['reasoning_effort']:
-            payload['reasoning_effort'] = self.config.reasoning_effort
+        if self.config.capability_profile['reasoning_effort'] and self.config.thinking_budget is None and not (self.config.dialect=='qwen_38_chat' and self.config.thinking_type=='disabled'):
+            payload['reasoning_effort'] = self.config.wire_reasoning_effort
         if self.config.capability_profile['thinking']:
             payload['thinking'] = {'type': self.config.thinking_type}
         if self.config.dialect=='glm_53_chat':
             payload['thinking']['clear_thinking']=False
             payload.update(temperature=1.0,top_p=0.95)
+        if self.config.dialect=='minimax_m3_chat':
+            payload['thinking']={'type':'adaptive' if self.config.thinking_type=='enabled' else 'disabled'}
+            payload.update(reasoning_split=True,service_tier='standard')
+        if self.config.dialect=='qwen_38_chat':
+            payload.pop('thinking',None)
+            payload.update(enable_thinking=self.config.thinking_type=='enabled',preserve_thinking=True)
+            if self.config.thinking_type=='enabled':payload['temperature']=0.6
+            if self.config.thinking_budget is not None:payload['thinking_budget']=self.config.thinking_budget
         if normalized_tools:
             if not self.config.capability_profile['tools']: raise ValueError('Provider native tools unsupported')
             payload["tools"] = self._wire_tools(normalized_tools)
             if self.config.dialect=='glm_53_chat' and self.config.stream:payload['tool_stream']=True
         if tool_choice is not None:
-            if self.config.dialect=='glm_53_chat':
+            if self.config.dialect=='minimax_m3_chat':
+                if tool_choice!='auto' and not (len(normalized_tools)==1 and tool_choice=={'type':'function','function':{'name':normalized_tools[0].name}}):
+                    raise ValueError('MiniMax-M3 supports native automatic selection or one matching submission Schema')
+                # The M3 OpenAI contract documents tools, but not forced tool_choice.
+                # Omit that unsupported parameter; retain the exact Schema and host checks.
+            elif self.config.dialect=='qwen_38_chat':
+                if isinstance(tool_choice,str) and tool_choice in {'auto','none'}:
+                    payload['tool_choice']=tool_choice
+                elif (isinstance(tool_choice,dict) and tool_choice in [
+                        {'type':'function','function':{'name':t.name}} for t in normalized_tools]):
+                    if self.config.thinking_type=='enabled':
+                        if len(normalized_tools)!=1:raise ValueError('Qwen thinking cannot force selection among multiple tools')
+                        payload['tool_choice']='auto'
+                    else:payload['tool_choice']=copy.deepcopy(tool_choice)
+                else:raise ValueError('Qwen3.8 does not support required or an unknown named tool')
+            elif self.config.dialect=='glm_53_chat':
                 if tool_choice=='auto':
                     payload['tool_choice']='auto'
                 elif (len(normalized_tools)==1 and tool_choice=={'type':'function','function':{'name':normalized_tools[0].name}}):
@@ -291,6 +355,8 @@ class OpenAICompatibleProvider:
                 raise ValueError('Request completion cap must be positive')
             if self.config.dialect=='glm_53_chat' and max_completion_tokens>131072:
                 raise ValueError('GLM 5.3 max_tokens exceeds 131072')
+            if self.config.dialect in {'minimax_m3_chat','qwen_38_chat'} and max_completion_tokens>(524288 if self.config.dialect=='minimax_m3_chat' else 131072):
+                raise ValueError('Model output cap exceeds documented maximum')
             payload[self.config.token_limit_field] = max_completion_tokens
         image_audit = self.input_measure(payload)
         payload_bytes = image_audit['text_wire_bytes']
@@ -342,11 +408,11 @@ class OpenAICompatibleProvider:
             **({'text_material_utf8_bytes':payload_bytes,'image_audit':image_audit} if self.config.image_input else {}),
         }
         if tool_choice is not None:
-            self._request_context.final_payload_audit['tool_choice'] = copy.deepcopy(payload['tool_choice'])
-            if payload['tool_choice']!=tool_choice:
+            self._request_context.final_payload_audit['tool_choice'] = copy.deepcopy(payload.get('tool_choice'))
+            if payload.get('tool_choice')!=tool_choice:
                 self._request_context.final_payload_audit['tool_choice_adaptation']={
-                    'requested':copy.deepcopy(tool_choice),'sent':payload['tool_choice'],
-                    'reason':'Provider auto-only API; single submission Schema with unchanged host validation'}
+                    'requested':copy.deepcopy(tool_choice),'sent':payload.get('tool_choice'),
+                    'reason':'Provider automatic tool selection; single submission Schema with unchanged host validation'}
         requested_tools = [tool.to_openai() for tool in normalized_tools]
         if payload.get('tools', []) != self._wire_tools(normalized_tools):
             raise ValueError('Final provider tools differ from requested tools')
@@ -549,10 +615,29 @@ class OpenAICompatibleProvider:
                 if journal:journal.write(raw.decode('utf-8')+'\n')
                 for key in ('id','model','created','system_fingerprint'):
                     if key not in chunk:continue
-                    if key in data and data[key]!=chunk[key]:raise ValueError('Provider SSE identity changed')
+                    if key=='created' and self.config.dialect in {'minimax_m3_chat','qwen_38_chat'}:
+                        # These APIs emit event timestamps, including a possibly earlier
+                        # final usage timestamp. Response id/model remain strict identities.
+                        stamp=chunk[key]
+                        if type(stamp) is not int or stamp<0:raise ValueError('Invalid SSE created timestamp')
+                        audit=data.setdefault('_stream_created',{'first':stamp,'last':stamp,
+                            'min':stamp,'max':stamp,'changes':0})
+                        audit['changes']+=int(audit['last']!=stamp)
+                        audit.update(last=stamp,min=min(audit['min'],stamp),max=max(audit['max'],stamp))
+                        data.setdefault('created',stamp)
+                        continue
+                    if key in data and data[key]!=chunk[key]:raise ValueError('Provider SSE identity changed: '+key)
                     data[key]=chunk[key]
                 if chunk.get('usage') is not None:
                     data['usage']=chunk['usage'];self._request_context.raw_usage=copy.deepcopy(chunk['usage'])
+                if self.config.dialect=='minimax_m3_chat' and 'base_resp' in chunk:
+                    data['base_resp']=copy.deepcopy(chunk['base_resp'])
+                    if not isinstance(data['base_resp'],dict):raise ValueError('Invalid MiniMax base_resp')
+                    if data['base_resp'].get('status_code',0)!=0:
+                        # Pass the native error to the same classifier as non-stream responses.
+                        # Retain any reported usage; never turn an error event into a scored answer.
+                        report()
+                        return data
                 for choice in chunk.get('choices',[]):
                     if choice.get('index',0)!=0:raise ValueError('Unexpected additional streamed choice')
                     delta=choice.get('delta',{})
@@ -576,6 +661,11 @@ class OpenAICompatibleProvider:
                 if time.monotonic()-last>=1:
                     if journal:journal.flush()
                     report();last=time.monotonic()
+            if not done and self.config.dialect=='minimax_m3_chat' and finish is not None:
+                # MiniMax documents native final-chunk termination. Graceful EOF is
+                # sufficient only with an explicit finish reason AND complete usage.
+                _parse_usage(data.get('usage'))
+                done=True
             if not done or finish is None:raise ValueError('Incomplete provider SSE termination')
             if calls:message['tool_calls']=[calls[i] for i in sorted(calls)]
             data['choices']=[{'index':0,'message':message,'finish_reason':finish}]
@@ -594,6 +684,8 @@ class OpenAICompatibleProvider:
         response: requests.Response,
         tools_requested: bool,
     ) -> AgentTurn:
+        if self.config.dialect=='minimax_m3_chat':
+            self._check_minimax_status(data,latency_ms,response)
         choices = data.get("choices")
         choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
         finish = choice.get("finish_reason")
@@ -636,6 +728,8 @@ class OpenAICompatibleProvider:
             "retry_count": retry_count,
             **usage_metadata,
         }
+        if '_stream_created' in data:
+            metadata['stream_created']=copy.deepcopy(data['_stream_created'])
         request_id = _provider_request_id(response, data)
         if request_id:
             metadata["request_id"] = request_id
@@ -716,6 +810,28 @@ class OpenAICompatibleProvider:
             reasoning_content=reasoning_content,
             replay_assistant_message=replay_message,
         )
+
+    def _check_minimax_status(self, data, latency_ms, response):
+        status=data.get('base_resp')
+        if status is None:return
+        if not isinstance(status,dict) or type(status.get('status_code')) is not int:
+            raise AgentProviderError('provider_invalid_response','Invalid MiniMax base_resp',http_status=response.status_code)
+        native=status['status_code']
+        if native==0:return
+        code={1000:'provider_inference_error',1001:'provider_timeout',1002:'provider_rate_limited',
+              1004:'provider_auth_error',1008:'provider_quota_exhausted',1013:'provider_inference_error',
+              1027:'provider_invalid_response',1039:'provider_context_window_exceeded',
+              2013:'provider_invalid_request'}.get(native,'provider_invalid_request')
+        self._request_context.response_diagnostic['minimax_status_code']=native
+        error=AgentProviderError(code,'MiniMax returned status_code='+str(native),http_status=response.status_code)
+        try:usage,metadata=_parse_usage(data.get('usage'))
+        except (TypeError,ValueError):pass
+        else:
+            error.billing_turn=AgentTurn(content='',tool_calls=[],latency_ms=latency_ms,finish_reason='provider_error',
+                prompt_tokens=usage['prompt_tokens'],completion_tokens=usage['completion_tokens'],
+                total_tokens=usage['total_tokens'],reasoning_tokens=usage['reasoning_tokens'],
+                provider_metadata={**metadata,'response_model':data.get('model'),'minimax_status_code':native})
+        raise error
 
     def _raise_protocol(
         self,
