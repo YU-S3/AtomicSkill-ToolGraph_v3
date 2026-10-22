@@ -341,6 +341,44 @@ Program仅负责图像裁剪，不替模型定位答案、识字或判分。
 合并结果明确标为分析投影。任何新的基础设施或未知费用异常再次停止。
 完整效果以实验完成后的原始结果为准。
 
+## GLM v12：翻转题与单动作提交（2026-10-23）
+
+人工规则目录新增v12，仍按公开问题意图选择核心指导加最多一条短规则。
+`quantity_slot`、`filled_amount`和`field_boundary`分别因退步或无收益被淘汰；
+只有`literal_copy`在两道适用题三次重复中从5/6提高到6/6，进入组合验证。
+实验Bank为`phone_raw,boundary_column,literal_copy`，不默认加载所有候选规则。
+
+显式`--submission-contract single_tool`去掉工具提交阶段重复要求XML的指令。
+首轮组合检查发现模型返回了正确count内容、却漏写唯一允许的`action=finish`，
+因此增加`--submission-contract direct_submit`：只在typed、无crop的单动作Bank中，
+Schema要求`answer/answer_kind/evidence_sources`，不再提供冗余action字段。
+宿主按这个新工具契约固定映射finish，并记录`submission_binding`；原始响应保留。
+这不是容忍旧Schema缺字段，也不回填旧分数；未知来源、额外字段仍按Schema拒绝。
+有inspection选择的接口以及默认legacy契约保持原行为，repair上限未增加。
+Docker控制层现在识别不带`docker:`前缀的daemon断连，按基础设施失败停止，
+不让该错误变成普通Program失败后触发Agent改答。
+
+| 方案 | 11道既往翻转题：每次正确数 | 重复中对错变化题数 | 12道保护题 |
+|---|---|---:|---|
+| 历史两轮（第二轮为Docker八题重跑合成） | 4、7 | 11 | 题单原本两轮全对 |
+| 仅single_tool，原指导不变 | 6、8、7 | 6 | 未在此阶段重复 |
+| 加入通过的literal_copy | 8、8、8 | 3 | 12、12、11；一次缺action空答 |
+| 同Bank，direct_submit | 10、8 | 4 | 12、12；零空答 |
+
+最终两轮7次Program调用均成功直接提交，没有新基础设施错误、未知计费或Bank变化。
+但仍有4道翻转，且两题相对上一阶段三次全对发生退步，未通过预定的最多3道变化、
+无稳定题退步门槛。Bank保留为局部有效的实验候选，不能称为稳定提升的最终版本。
+观察到的剩余差异是金额符号、数字误读、空白金额分项及相邻日期边界；没有按gold
+加入删除符号、截取首行或题号规则。原始失败全部保留。
+
+这是已查看Test题目的探索性实验；所选题本来就发生过翻转，且各阶段重复次数不同，
+不能将子集正确率或翻转减少外推到完整Test201。此次没有新增完整Test运行。
+本轮178次题目执行/HTTP、914,435 tokens，累计24,208,515 tokens/4,212 HTTP；
+沿用更严格有效上限24,306,916 tokens/4,401 HTTP，未增加25M/4,500的授权。
+第一阶段付费源码`15ee085`，最终付费源码`1f06cf3`；合并后的发布代码另经零HTTP检查，
+不将付费结果改称发布提交的重复实测。结果、题单、账本、冻结Bank和源码bundle位于
+`D:/T3S_exp/deliveries/docvqa_glm_stability_v12_20261023/`。
+
 六项单条对照已完成，按两轮正确数净变化记录：span为0/+1，entity为+1/-1，
 value为0/0，relation为-1/0，literal为0/0，inspect为0/0。仅span进入24题组合检查；
 这不是最终完整Test收益。literal第一轮也遇到一次无答案、无usage的相同网络错误，
