@@ -1,0 +1,31 @@
+{
+  "source": {
+    "git_sha": "5ff29b0a785642aa5ba54918843ebcdc586afae0",
+    "tracked_dirty": false,
+    "source_sha256": "52c3e294dbc76ab1548cf14b152c757c7c5aa4c92b19e12a858059cb94c0e295"
+  },
+  "allocation_per_model": {
+    "tokens": 8000000,
+    "http": 3000
+  },
+  "authorization": "检查配置，用qwen-3.8-flash、minimax-M3加bank分别运行一次test",
+  "bank": "/home/yangchengyu/searchqa_v2_v7_fulltest1400_seed42_20261020/fulltest1400/v7_text_compiler",
+  "bank_unchanged": true,
+  "configured_keys_present": {
+    "qwen38_flash": true,
+    "minimax_m3": true
+  },
+  "source_provenance": {
+    "base_commit": "a4b96eedda9dc920afe4b7105b9e37f93cc931e8",
+    "source_commit": "5ff29b0a785642aa5ba54918843ebcdc586afae0",
+    "source": "/home/yangchengyu/asg_searchqa_qwen_minimax_release_20261022",
+    "provider_origin": "29487ac578ecb0925c886898fb680d1312ffee2f",
+    "changed_files": [
+      "agents/provider.py",
+      "empirical/system.py",
+      "empirical/budget_governor.py"
+    ],
+    "purpose": "Provider-only port, preserve prior explicit refusals; forward Qwen thinking_budget and reserve separate output; unchanged method, Bank and scoring."
+  },
+  "scope": "Two fresh independent Test1400 runs; no Train, no Bank edits, no automatic budget expansion."
+}

@@ -1,0 +1,12 @@
+{
+  "base_commit": "a4b96eedda9dc920afe4b7105b9e37f93cc931e8",
+  "source_commit": "5ff29b0a785642aa5ba54918843ebcdc586afae0",
+  "source": "/home/yangchengyu/asg_searchqa_qwen_minimax_release_20261022",
+  "provider_origin": "29487ac578ecb0925c886898fb680d1312ffee2f",
+  "changed_files": [
+    "agents/provider.py",
+    "empirical/system.py",
+    "empirical/budget_governor.py"
+  ],
+  "purpose": "Provider-only port, preserve prior explicit refusals; forward Qwen thinking_budget and reserve separate output; unchanged method, Bank and scoring."
+}

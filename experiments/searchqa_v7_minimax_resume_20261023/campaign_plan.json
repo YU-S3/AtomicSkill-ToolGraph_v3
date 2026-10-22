@@ -1,0 +1,10 @@
+{
+  "source": {
+    "git_sha": "5ff29b0a785642aa5ba54918843ebcdc586afae0",
+    "tracked_dirty": false,
+    "source_sha256": "52c3e294dbc76ab1548cf14b152c757c7c5aa4c92b19e12a858059cb94c0e295"
+  },
+  "authorization": "用户于2026-10-23要求：minimax能续跑吗。恢复已中断的Test；保留历史费用预留，不扩大累计预算。",
+  "core_source_unchanged": true,
+  "only_one_saved_overload_recovery": true
+}

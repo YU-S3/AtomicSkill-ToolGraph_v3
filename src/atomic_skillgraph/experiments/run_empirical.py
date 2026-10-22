@@ -11,7 +11,7 @@ import subprocess
 import yaml
 
 from atomic_skillgraph.empirical.contracts import PublicTask, digest
-from atomic_skillgraph.empirical.checkpoint import TaskCheckpoint
+from atomic_skillgraph.empirical.checkpoint import TaskCheckpoint, native_event_restorable
 from atomic_skillgraph.harness.simple_protocol import UnknownSideEffect
 from atomic_skillgraph.empirical.system import EmpiricalSystem, validate_config
 from atomic_skillgraph.harness.registry import create_simple_harness
@@ -171,7 +171,7 @@ def run(config, tasks, output, *, resume=False, readonly=False, adapter=None, ad
                     from ..empirical.trial_snapshot import validate_finished_execution
                     validate_finished_execution(checkpoint)
                 elif surface.capabilities.checkpoint_mode != 'workspace_copy' or any(
-                    e['state'] != 'finished' or specs.get(e['name'], {}).get('effect') != 'read_only' for e in native):
+                    not native_event_restorable(e, specs) for e in native):
                     raise UnknownSideEffect('Interrupted environment execution requires explicit new attempt; no blind replay')
             system.checkpoint = checkpoint
             with state:

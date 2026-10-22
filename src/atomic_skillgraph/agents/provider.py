@@ -67,14 +67,17 @@ class OpenAICompatibleConfig:
     generation_seed: int | None = None
     capability_profile: dict | None = None
     image_input: dict | None = None
+    stream: bool = False
 
     def __post_init__(self) -> None:
         from .image_input import validate_policy
         validate_policy(self.image_input)
+        if type(self.stream) is not bool:
+            raise ValueError('stream must be boolean')
         if self.image_input is not None and 'image' not in self.input_modalities:
             raise ValueError('Image input policy requires a visual capability lock')
-        defaults = {'tools':True, 'thinking':self.dialect=='deepseek_v4_chat',
-                    'reasoning_effort':self.dialect=='deepseek_v4_chat', 'generation_seed':False}
+        defaults = {'tools':True, 'thinking':self.dialect in {'deepseek_v4_chat', 'moonshot_k2_chat', 'glm_53_chat'},
+                    'reasoning_effort':self.dialect in {'deepseek_v4_chat','glm_53_chat'}, 'generation_seed':False}
         if self.capability_profile is not None and (not isinstance(self.capability_profile,dict) or
                 set(self.capability_profile)-set(defaults) or any(type(v) is not bool for v in self.capability_profile.values())):
             raise ValueError('Invalid provider capability profile')
@@ -86,8 +89,21 @@ class OpenAICompatibleConfig:
             raise ValueError("base_url must be an absolute http(s) URL")
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError("base_url must not contain credentials, query parameters, or fragments")
-        if self.dialect not in {'deepseek_v4_chat', 'openai_chat'}:
+        if self.dialect not in {'deepseek_v4_chat', 'openai_chat', 'moonshot_k2_chat', 'glm_53_chat'}:
             raise ValueError('Unsupported provider dialect')
+        if self.dialect == 'moonshot_k2_chat' and (self.capability_profile['reasoning_effort'] or self.capability_profile['generation_seed']):
+            raise ValueError('Moonshot K2 has no configured reasoning_effort or generation seed support')
+        if self.dialect == 'glm_53_chat':
+            if self.model not in {'glm-5.3','glm-5.3-flash','glm-5.3-flashx'}:
+                raise ValueError('GLM 5.3 dialect requires a documented GLM 5.3 model ID')
+            if self.thinking_type!='enabled' or not self.capability_profile['thinking']:
+                raise ValueError('GLM 5.3 requires enabled thinking, including learning requests')
+            if self.reasoning_effort not in {'low','high','max'} or not self.capability_profile['reasoning_effort']:
+                raise ValueError('GLM 5.3 reasoning_effort must be low, high or max')
+            if self.capability_profile['generation_seed'] or self.generation_seed is not None:
+                raise ValueError('GLM 5.3 generation seed is not established by the official API contract')
+            if self.token_limit_field!='max_tokens' or type(self.max_completion_tokens) is not int or not 1<=self.max_completion_tokens<=131072:
+                raise ValueError('GLM 5.3 requires max_tokens in 1..131072')
         if self.token_limit_field not in {'max_tokens', 'max_completion_tokens'}:
             raise ValueError('Unsupported token limit field')
         if not self.model.strip() or not self.api_key_env.strip():
@@ -144,6 +160,10 @@ class OpenAICompatibleConfig:
             "request_timeout_seconds": self.request_timeout_seconds,
             "max_retries": self.max_retries,
             "capability_profile": dict(self.capability_profile),
+            **({'stream':True} if self.stream else {}),
+            **({'glm_protocol':{'version':'bigmodel.glm53.chat.v1','clear_thinking':False,
+                'temperature':1.0,'top_p':0.95,'tool_choice':'auto only; single named submission mapped and host validated',
+                'tool_stream':self.stream,'stream_usage':'native final chunk; no stream_options'}} if self.dialect=='glm_53_chat' else {}),
             **({'image_input':dict(self.image_input)} if self.image_input else {}),
         }
 
@@ -187,10 +207,10 @@ class OpenAICompatibleProvider:
 
     def _build_payload(
         self, messages: list[AgentMessage], tools: list[NativeToolSpec] | None,
-        tool_choice: dict | None = None,
+        tool_choice: dict | str | None = None,
     ) -> dict[str, Any]:
         normalized_messages = _validate_deepseek_messages(messages, allow_images='image' in self.config.input_modalities)
-        if self.config.dialect != 'deepseek_v4_chat':
+        if self.config.dialect not in {'deepseek_v4_chat', 'moonshot_k2_chat', 'glm_53_chat'}:
             normalized_messages = [{k:v for k,v in m.items() if k != 'reasoning_content'} for m in normalized_messages]
         normalized_tools = list(tools or [])
         if not all(isinstance(tool, NativeToolSpec) for tool in normalized_tools):
@@ -202,25 +222,52 @@ class OpenAICompatibleProvider:
             "messages": normalized_messages,
             self.config.token_limit_field: self.config.max_completion_tokens,
         }
+        if self.config.stream:
+            payload['stream']=True
+            if self.config.dialect!='glm_53_chat':payload['stream_options']={'include_usage':True}
         if self.config.capability_profile['reasoning_effort']:
             payload['reasoning_effort'] = self.config.reasoning_effort
         if self.config.capability_profile['thinking']:
             payload['thinking'] = {'type': self.config.thinking_type}
+        if self.config.dialect=='glm_53_chat':
+            payload['thinking']['clear_thinking']=False
+            payload.update(temperature=1.0,top_p=0.95)
         if normalized_tools:
             if not self.config.capability_profile['tools']: raise ValueError('Provider native tools unsupported')
-            payload["tools"] = [tool.to_openai() for tool in normalized_tools]
+            payload["tools"] = self._wire_tools(normalized_tools)
+            if self.config.dialect=='glm_53_chat' and self.config.stream:payload['tool_stream']=True
         if tool_choice is not None:
-            if (not isinstance(tool_choice, dict) or set(tool_choice) != {'type', 'function'} or
-                tool_choice.get('type') != 'function' or not isinstance(tool_choice.get('function'), dict) or
-                set(tool_choice['function']) != {'name'} or
-                tool_choice['function']['name'] not in {tool.name for tool in normalized_tools}):
-                raise ValueError('Named tool_choice must identify an actual request tool')
-            if self.config.dialect == 'deepseek_v4_chat' and self.config.thinking_type != 'disabled':
-                raise ValueError('Named tool_choice requires disabled thinking')
-            payload['tool_choice'] = copy.deepcopy(tool_choice)
+            if self.config.dialect=='glm_53_chat':
+                if tool_choice=='auto':
+                    payload['tool_choice']='auto'
+                elif (len(normalized_tools)==1 and tool_choice=={'type':'function','function':{'name':normalized_tools[0].name}}):
+                    # Auto-only API: keep one submission Schema and host validation.
+                    payload['tool_choice']='auto'
+                else:raise ValueError('GLM 5.3 supports auto or a single matching submission tool only')
+            elif self.config.dialect == 'moonshot_k2_chat' and isinstance(tool_choice, str):
+                if tool_choice not in {'auto', 'none'}:
+                    raise ValueError('Moonshot K2 string tool_choice must be auto or none')
+                payload['tool_choice'] = tool_choice
+            else:
+                if (not isinstance(tool_choice, dict) or set(tool_choice) != {'type', 'function'} or
+                    tool_choice.get('type') != 'function' or not isinstance(tool_choice.get('function'), dict) or
+                    set(tool_choice['function']) != {'name'} or
+                    tool_choice['function']['name'] not in {tool.name for tool in normalized_tools}):
+                    raise ValueError('Named tool_choice must identify an actual request tool')
+                if self.config.dialect in {'deepseek_v4_chat', 'moonshot_k2_chat'} and self.config.thinking_type != 'disabled':
+                    raise ValueError('Named tool_choice requires disabled thinking')
+                payload['tool_choice'] = copy.deepcopy(tool_choice)
         if self.config.generation_seed is not None:
             payload['seed'] = self.config.generation_seed
         return payload
+
+    def _wire_tools(self, tools):
+        values = [tool.to_openai() for tool in tools]
+        if self.config.dialect == 'moonshot_k2_chat':
+            from .moonshot_schema import wire_schema
+            for value in values:
+                value['function']['parameters'] = wire_schema(value['function']['parameters'])
+        return values
 
     def input_measure(self, payload):
         from .image_input import measure
@@ -235,13 +282,15 @@ class OpenAICompatibleProvider:
         *,
         tools: list[NativeToolSpec] | None = None,
         max_completion_tokens: int | None = None,
-        tool_choice: dict | None = None,
+        tool_choice: dict | str | None = None,
     ) -> AgentTurn:
         normalized_tools = list(tools or [])
         payload = self._build_payload(messages, normalized_tools, tool_choice) if tool_choice is not None else self._build_payload(messages, normalized_tools)
         if max_completion_tokens is not None:
             if type(max_completion_tokens) is not int or max_completion_tokens <= 0:
                 raise ValueError('Request completion cap must be positive')
+            if self.config.dialect=='glm_53_chat' and max_completion_tokens>131072:
+                raise ValueError('GLM 5.3 max_tokens exceeds 131072')
             payload[self.config.token_limit_field] = max_completion_tokens
         image_audit = self.input_measure(payload)
         payload_bytes = image_audit['text_wire_bytes']
@@ -294,8 +343,17 @@ class OpenAICompatibleProvider:
         }
         if tool_choice is not None:
             self._request_context.final_payload_audit['tool_choice'] = copy.deepcopy(payload['tool_choice'])
-        if payload.get('tools', []) != [tool.to_openai() for tool in normalized_tools]:
+            if payload['tool_choice']!=tool_choice:
+                self._request_context.final_payload_audit['tool_choice_adaptation']={
+                    'requested':copy.deepcopy(tool_choice),'sent':payload['tool_choice'],
+                    'reason':'Provider auto-only API; single submission Schema with unchanged host validation'}
+        requested_tools = [tool.to_openai() for tool in normalized_tools]
+        if payload.get('tools', []) != self._wire_tools(normalized_tools):
             raise ValueError('Final provider tools differ from requested tools')
+        if payload.get('tools', []) != requested_tools:
+            self._request_context.final_payload_audit['schema_adaptation'] = {
+                'version':'moonshot.schema-syntax.v1','requested_tools':requested_tools,
+                'host_validation':'Original schema retained; only wire syntax uses typed enums and anyOf.'}
         api_key = self.config.resolve_api_key()
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -326,17 +384,24 @@ class OpenAICompatibleProvider:
             if self.budget_governor:
                 self.budget_governor.admit(audit_id, payload, getattr(self._request_context, 'value', {}))
             try:
+                stream_data = None
                 response = requests.post(
                     self.config.endpoint,
                     headers=headers,
                     json=payload,
                     timeout=(self.config.connect_timeout_seconds, self.config.request_timeout_seconds),
+                    **({'stream':True} if self.config.stream else {}),
                 )
+                if self.config.stream and response.ok:
+                    try:
+                        stream_data = self._read_stream(response)
+                    finally:
+                        response.close()
             except Exception as exc:  # noqa: BLE001
                 code = (
                     "provider_timeout"
                     if isinstance(exc, requests.exceptions.Timeout)
-                    else "provider_transport_error"
+                    else "provider_invalid_response" if isinstance(exc,ValueError) else "provider_transport_error"
                 )
                 message = _sanitize(
                     f"{type(exc).__name__}: {exc}", secrets=diagnostic_secrets,
@@ -351,11 +416,11 @@ class OpenAICompatibleProvider:
                     continue
                 raise AgentProviderError(code, message) from exc
 
-            body = getattr(response, "content", b"")
-            self._request_context.response_diagnostic = {
+            body = b'' if stream_data is not None else getattr(response, "content", b"")
+            self._request_context.response_diagnostic.update({
                 "body_bytes": len(body) if isinstance(body, bytes) else None,
                 "body_sha256": hashlib.sha256(body).hexdigest() if isinstance(body, bytes) and body else "",
-            }
+            })
             provider_request_id = _provider_request_id(response, {})
             if not response.ok:
                 try:
@@ -384,7 +449,7 @@ class OpenAICompatibleProvider:
 
             latency_ms = (time.perf_counter() - started_all) * 1000.0
             try:
-                data = response.json()
+                data = stream_data if stream_data is not None else response.json()
             except Exception as exc:  # noqa: BLE001
                 message = "LLM provider returned invalid JSON"
                 self._append_request_record(
@@ -430,7 +495,7 @@ class OpenAICompatibleProvider:
                     tools_requested=bool(normalized_tools),
                 )
             except (AgentProviderError, ProviderAgentProtocolError) as exc:
-                usage_turn = getattr(exc, "usage_turn", None)
+                usage_turn = getattr(exc, "usage_turn", None) or getattr(exc, 'billing_turn', None)
                 self._append_request_record(
                     audit_id, started_at, "error", response.status_code, retry_count,
                     usage_turn if isinstance(usage_turn, AgentTurn) else None,
@@ -453,6 +518,73 @@ class OpenAICompatibleProvider:
             )
             return turn
 
+    def _read_stream(self, response):
+        """Reassemble Chat SSE without losing reasoning, tool arguments or final usage."""
+        from pathlib import Path
+        from ..empirical.checkpoint import save_json
+        output=getattr(self._request_context,'value',{}).get('stream_output_dir')
+        folder=Path(output) if output else None
+        if folder:folder.mkdir(parents=True,exist_ok=True)
+        journal=(folder/'stream_events.jsonl').open('w',encoding='utf-8') if folder else None
+        data={};message={'role':'assistant','content':'','reasoning_content':''};calls={}
+        finish=None;done=False;count=0;size=0;checksum=hashlib.sha256();last=0
+        def report(complete=False):
+            value={'updated_at':time.time(),'events':count,'bytes':size,'response_id':data.get('id'),
+                'response_model':data.get('model'),'content_chars':len(message['content']),
+                'reasoning_chars':len(message['reasoning_content']),'finish_reason':finish,
+                'usage_received':data.get('usage') is not None,'completed':complete,
+                'events_sha256':checksum.hexdigest()}
+            self._request_context.response_diagnostic.update(stream=value)
+            if folder:save_json(folder/'stream_progress.json',value)
+        try:
+            for line in response.iter_lines(chunk_size=1024):
+                if not line or line.startswith(b':'):continue
+                if not line.startswith(b'data:'):raise ValueError('Invalid SSE data line')
+                raw=line[5:].strip()
+                if raw==b'[DONE]':done=True;break
+                chunk=json.loads(raw)
+                if not isinstance(chunk,dict) or 'error' in chunk:raise ValueError('Invalid provider SSE event')
+                count+=1;size+=len(raw);checksum.update(raw+b'\n')
+                if size>64*1024*1024:raise ValueError('Provider SSE envelope exceeds 64 MiB')
+                if journal:journal.write(raw.decode('utf-8')+'\n')
+                for key in ('id','model','created','system_fingerprint'):
+                    if key not in chunk:continue
+                    if key in data and data[key]!=chunk[key]:raise ValueError('Provider SSE identity changed')
+                    data[key]=chunk[key]
+                if chunk.get('usage') is not None:
+                    data['usage']=chunk['usage'];self._request_context.raw_usage=copy.deepcopy(chunk['usage'])
+                for choice in chunk.get('choices',[]):
+                    if choice.get('index',0)!=0:raise ValueError('Unexpected additional streamed choice')
+                    delta=choice.get('delta',{})
+                    for key in ('content','reasoning_content'):
+                        fragment=delta.get(key)
+                        if fragment is not None:
+                            if not isinstance(fragment,str):raise ValueError('Invalid SSE text fragment')
+                            message[key]+=fragment
+                    for fragment in delta.get('tool_calls',[]):
+                        index=fragment.get('index')
+                        if type(index) is not int or index<0:raise ValueError('Invalid streamed tool index')
+                        call=calls.setdefault(index,{'id':'','type':'function','function':{'name':'','arguments':''}})
+                        if fragment.get('id'):call['id']+=fragment['id']
+                        if fragment.get('type') not in (None,'function'):raise ValueError('Invalid streamed tool type')
+                        for key in ('name','arguments'):
+                            piece=fragment.get('function',{}).get(key)
+                            if piece is not None:
+                                if not isinstance(piece,str):raise ValueError('Invalid streamed tool fragment')
+                                call['function'][key]+=piece
+                    if choice.get('finish_reason') is not None:finish=choice['finish_reason']
+                if time.monotonic()-last>=1:
+                    if journal:journal.flush()
+                    report();last=time.monotonic()
+            if not done or finish is None:raise ValueError('Incomplete provider SSE termination')
+            if calls:message['tool_calls']=[calls[i] for i in sorted(calls)]
+            data['choices']=[{'index':0,'message':message,'finish_reason':finish}]
+            report(True)
+            return data
+        finally:
+            if journal:journal.close()
+            if not done:report()
+
     def _parse_response(
         self,
         data: dict[str, Any],
@@ -462,6 +594,29 @@ class OpenAICompatibleProvider:
         response: requests.Response,
         tools_requested: bool,
     ) -> AgentTurn:
+        choices = data.get("choices")
+        choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+        finish = choice.get("finish_reason")
+        outcomes = {"content_filter": "provider_content_filter"}
+        if self.config.dialect == "glm_53_chat":
+            outcomes.update(sensitive="provider_content_filter", network_error="provider_inference_error",
+                            model_context_window_exceeded="provider_context_window_exceeded")
+        if finish in outcomes:
+            # An explicit provider outcome remains identifiable even without billing.
+            error = AgentProviderError(outcomes[finish], "Provider returned finish_reason=" + finish,
+                                       http_status=response.status_code)
+            try:
+                billed, metadata = _parse_usage(data.get("usage"))
+            except (TypeError, ValueError):
+                pass
+            else:
+                error.usage_turn = AgentTurn(content="", tool_calls=[], latency_ms=latency_ms,
+                    finish_reason=finish, prompt_tokens=billed["prompt_tokens"],
+                    completion_tokens=billed["completion_tokens"], total_tokens=billed["total_tokens"],
+                    reasoning_tokens=billed["reasoning_tokens"],
+                    provider_metadata={**metadata, "response_model": data.get("model"),
+                                       "response_id": data.get("id"), "provider_outcome": outcomes[finish]})
+            raise error
         try:
             usage, usage_metadata = _parse_usage(data.get("usage"))
         except (TypeError, ValueError) as exc:

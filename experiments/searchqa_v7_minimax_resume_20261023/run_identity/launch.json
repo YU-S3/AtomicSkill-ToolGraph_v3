@@ -1,0 +1,11 @@
+{
+  "pid": 133254,
+  "at": "2026-10-22T16:56:44.655143+00:00",
+  "command": [
+    "/home/yangchengyu/asg_alfworld_venv/bin/python",
+    "-B",
+    "-u",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_minimax_resume_20261023/continue_minimax.py",
+    "run"
+  ]
+}
