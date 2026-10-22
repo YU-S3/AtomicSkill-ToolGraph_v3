@@ -384,4 +384,3 @@ Docker控制层现在识别不带`docker:`前缀的daemon断连，按基础设�
 第一阶段付费源码`15ee085`，最终付费源码`1f06cf3`；合并后的发布代码另经零HTTP检查，
 不将付费结果改称发布提交的重复实测。结果、题单、账本、冻结Bank和源码bundle位于
 `D:/T3S_exp/deliveries/docvqa_glm_stability_v12_20261023/`。
-
