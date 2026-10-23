@@ -1,0 +1,27 @@
+{
+  "passed": true,
+  "stage": "fulltest1400",
+  "tasks": 1400,
+  "arms": [
+    "r2"
+  ],
+  "at": "2026-10-23T13:39:28.391582+00:00",
+  "source": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "same_bank_as_followup96": true,
+  "canonical_tasks_sha256": "3c50bbaee421a8a5ac80dcdb551a7606267b945890e5d9cc6bddbb4b66bc783f",
+  "bank_input_sha256": "7189fe6cb380a93f29a447be2145ffb40fb4e94da0d4d8f0f4bda50a94370c82",
+  "frozen_sha256": "570723608b29f99bd4e75e65db41d59d7a2648d6c32041a3c845f1343c8f7cf6",
+  "new_tokens": 6000000,
+  "new_http": 1600,
+  "cumulative_limits": {
+    "token_limit": 13821713,
+    "request_limit": 3795,
+    "finish_reserve": 0
+  },
+  "parent_physical_tokens": 7666801,
+  "retained_unknown_reservation": 154912
+}

@@ -1,0 +1,17 @@
+{
+  "status": "approved",
+  "at": "2026-10-23T13:39:27.442307+00:00",
+  "user_request": "能否启动test？可以就启动",
+  "context": "User requested a full test after being informed the old remaining allowance cannot cover Test1400.",
+  "scope": "One independent MiniMax-M3 R2 canonical Test1400; prior paid results retained.",
+  "operator_set_stop_limits": {
+    "new_tokens": 6000000,
+    "new_http": 1600
+  },
+  "limits": {
+    "token_limit": 13821713,
+    "request_limit": 3795,
+    "finish_reserve": 0
+  },
+  "automatic_budget_expansion": false
+}

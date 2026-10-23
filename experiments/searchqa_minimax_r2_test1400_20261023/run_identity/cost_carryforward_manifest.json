@@ -1,0 +1,22 @@
+{
+  "parent": "/home/yangchengyu/searchqa_minimax_accuracy_r2_20261023",
+  "parent_budget_sha256": "cd9d673a2491003440eb7fdd725ef2e6fbc203503cab352559de313527eb78f9",
+  "prior_searchqa_tokens": 7666801,
+  "prior_searchqa_http": 2195,
+  "unknown_reserved_tokens": 154912,
+  "old_entries_preserved": true,
+  "old_excluded_200_effective_cost_stays_excluded": true,
+  "prior_limits": {
+    "token_limit": 8000000,
+    "request_limit": 2209,
+    "finish_reserve": 0
+  },
+  "new_limits": {
+    "token_limit": 13821713,
+    "request_limit": 3795,
+    "finish_reserve": 0
+  },
+  "incremental_token_limit": 6000000,
+  "incremental_http_limit": 1600,
+  "prior_task_results_reused": false
+}
