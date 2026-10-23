@@ -1,0 +1,36 @@
+{
+  "id": "skill_hs_searchqa_surface_target_scope_20261024",
+  "goal": "Select the exact amount of supported wording without blanket name or suffix rules.",
+  "guidance": "Submit the minimal COMPLETE requested constituent, not an explanatory label. Omit a noun or adjective already supplied outside the blank: a river's distinctive name rather than “... River”, a city rather than “City, State”, a requested program rather than “... program”, a variety of rock rather than “... rock”. Do not add “United States”, “National”, an honorific, a middle name, a nickname or a legal corporate suffix merely to be formal. Preserve such words when intrinsic to the known name or explicitly requested; do not blindly cut compound names such as Yellow River, New York or Great Britain.\n\nUse the ordinary English quiz name, not an unnecessarily technical Latin taxon or longer synonym. Common foods and countable ingredients normally take their customary plural (berries, nuts, chips), while a specified single member takes singular. Match the grammatical answer role, not merely the nearest plural word in the clue.\n\nFor famous historical scientists, painters, composers, poets and philosophers, prefer the distinctive conventional surname when unambiguous and no exact source gives a different form. Do NOT apply surname-only indiscriminately: preserve customary full professional names of performers and modern people, necessary disambiguation, and an exact matching archive answer. Regnal/mononymous figures use their conventional name without unnecessary surnames or extra regnal numbers. Avoid inventing first/middle names. Keep initials compact (J.K., H.G.), and use conventional English spellings. When the question asks for two entities, include both, usually joined by &, but preserve “and” inside an established work's title.\n\nCounts/ages/percentages requested as quantities normally use digits, with no explanatory unit already fixed by the question. Preserve signs, decimals, magnitude words, years and number words intrinsic to a title or expression. Dates involving B.C. have no year zero. A Program will audit only typography, initials, accents and bounded quantity formatting; it cannot correct a wrong entity or choose the intended scope. Output one answer with no alternatives or commentary.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "question",
+      "context"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "execution_intent": "guidance_only",
+  "result_role": "intermediate",
+  "method_version": "human.searchqa.target_scope_20261024",
+  "origin": "human_authored_post_test_development",
+  "state": "authored",
+  "permission": "author_trusted",
+  "applicability": {
+    "selector": "always"
+  }
+}

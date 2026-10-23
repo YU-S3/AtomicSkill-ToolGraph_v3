@@ -1,0 +1,38 @@
+{
+  "source": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "authorization": "用户要求提高 MiniMax≥82%、Gemini≥88%、GLM≥84%，允许参考事实卡片、技能/Program迭代；沿用本对话真实付费实验授权。",
+  "models": {
+    "minimax": {
+      "parent": "/home/yangchengyu/searchqa_minimax_r2_test1400_resume_20261024",
+      "arm": "r2",
+      "tokens": 8000000,
+      "requests": 2000,
+      "target": 0.82
+    },
+    "glm": {
+      "parent": "/home/yangchengyu/searchqa_v7_crossmodel_test1400_seed42_20261021/glm53_flash",
+      "arm": "v7_text_compiler",
+      "tokens": 8000000,
+      "requests": 2000,
+      "target": 0.84
+    },
+    "gemini": {
+      "parent": "/home/yangchengyu/searchqa_v7_gemini38_test1400_seed42_20261023",
+      "arm": "v7_text_compiler",
+      "tokens": 10000000,
+      "requests": 2200,
+      "target": 0.88
+    }
+  },
+  "additional_tokens": 26000000,
+  "additional_http": 6200,
+  "phases": [
+    "paired probe96 (3 arms)",
+    "one selected full1400 per model"
+  ],
+  "no_automatic_extra_iteration": true
+}

@@ -1,0 +1,50 @@
+{
+  "id": "skill_hs_searchqa_evidence_windows_target_reference_20261024",
+  "goal": "Locate exact source windows and explicitly delimited matching trivia fields for semantic review.",
+  "guidance": "Use only when a specific supporting passage or explicit answer-field boundary needs locating. Query may contain distinctive clue words or a candidate; default is the original question. Read returned raw quotes in their own DOC. Bind output evidence_windows to the same-named optional solve input. Explicit fields and lexical rankings still need target-type and relation checks.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      },
+      "query": {
+        "type": "string"
+      },
+      "top_k": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 6
+      }
+    },
+    "required": [
+      "question",
+      "context"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "evidence_windows": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "evidence_windows"
+    ],
+    "additionalProperties": false
+  },
+  "execution_intent": "procedural",
+  "result_role": "intermediate",
+  "method_version": "human.searchqa.target_reference_20261024",
+  "origin": "human_authored_post_test_development",
+  "state": "authored",
+  "permission": "author_trusted",
+  "applicability": {
+    "selector": "always"
+  }
+}

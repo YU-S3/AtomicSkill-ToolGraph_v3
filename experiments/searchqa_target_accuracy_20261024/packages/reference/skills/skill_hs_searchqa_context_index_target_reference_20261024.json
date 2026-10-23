@@ -1,0 +1,42 @@
+{
+  "id": "skill_hs_searchqa_context_index_target_reference_20261024",
+  "goal": "Locate document/title/body boundaries and literal clue terms; never select the answer by overlap.",
+  "guidance": "Use only for a concrete document-boundary or duplicate-source issue. Pass original question and context via existing input ResultRefs. Bind output context_index to the same-named optional solve input and mark it used only after the real index informs the answer. Clue overlap is navigation, never semantic proof.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "question",
+      "context"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "context_index": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "context_index"
+    ],
+    "additionalProperties": false
+  },
+  "execution_intent": "procedural",
+  "result_role": "intermediate",
+  "method_version": "human.searchqa.target_reference_20261024",
+  "origin": "human_authored_post_test_development",
+  "state": "authored",
+  "permission": "author_trusted",
+  "applicability": {
+    "selector": "always"
+  }
+}

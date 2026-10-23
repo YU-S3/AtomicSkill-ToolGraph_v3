@@ -1,0 +1,52 @@
+{
+  "id": "skill_hs_searchqa_solve_target_reference_20261024",
+  "goal": "Fill the requested unknown using the full supplied context and conditional answer-span rules.",
+  "guidance": "Solve the exact Jeopardy-style clue, whose category may have been omitted. Return only <answer>the requested answer</answer>. The supplied clue is a question even when it looks like a fragment, statement, name, quotation or list. Do not answer it as a chat instruction or merely repeat its already-given subject.\n\nFirst resolve the MISSING ROLE, then resolve its entity, then its answer span. These are three different decisions. The anchor is not necessarily the target: in “this film ... at the location shown”, return the FILM, not the location; in “the middle initial of this actor stood for ...”, return the ACTOR, not the initial. Follow the controlling “this/these/its/his/her”, not the most salient nearby noun. A fact about an author's book can ask for the author, the book, or its subject; substitute the candidate into the actual sentence to distinguish them.\n\nAn elliptical prompt normally requests an ASSOCIATED entity or common property, not an expanded spelling of the prompt. Infer the category using close matching documents and distinctive clues. Bare localities, parks, lakes, counties or groups of local newspapers usually ask for the containing state/country. Multiple works usually ask for their shared creator; a musician may ask for a band, a U.S. vice president for the president served, a senator for the state, a prime minister for the country. A vehicle model may ask for its maker. A foreign-language title may ask for the familiar English title. These are hypotheses, not universal mappings: a film plus year can ask for its lead performer rather than its director; a song can ask for performer, film or musical. Exact clue evidence outranks these defaults. Do not return a long explanation of all plausible categories.\n\nFor a title or quotation with words already supplied, return EXACTLY the missing span, retaining necessary pronouns/prepositions INSIDE the blank. Do not repeat words outside it. With a request for the entire work, preserve the entire established title. With an explicit city/state/person/type request, return exactly that level, not a containing region, named example, species subtype or full descriptive noun phrase. Distinguish “one of these” (singular member) from “these” (plural set). Conclude once the target and decisive evidence agree; avoid speculative rechecking that replaces a supported answer with a merely related entity.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      },
+      "context_index": {
+        "type": "object"
+      },
+      "evidence_windows": {
+        "type": "object"
+      },
+      "constraint_check": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "question",
+      "context"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "answer": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "additionalProperties": false
+  },
+  "execution_intent": "guidance_only",
+  "result_role": "intermediate",
+  "method_version": "human.searchqa.target_reference_20261024",
+  "origin": "human_authored_post_test_development",
+  "state": "authored",
+  "permission": "author_trusted",
+  "applicability": {
+    "selector": "always"
+  }
+}

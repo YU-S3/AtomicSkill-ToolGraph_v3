@@ -1,0 +1,51 @@
+{
+  "id": "program_hs_searchqa_context_index_target_reference_20261024",
+  "title": "Locate document/title/body boundaries and literal clue terms; never select the answer by overlap.",
+  "entry": "run",
+  "backend": "sandbox_python_v1",
+  "source": "\"\"\"Index supplied SearchQA document boundaries; offsets are Unicode character offsets.\"\"\"\nimport re\n\n_STOP = set(\"a an the of in on at to for from and or by with is was are were be been this that these those it its as who what which when where how his her their has have had not one named called\".split())\n\n\ndef _tokens(value):\n    return {word.casefold() for word in re.findall(r\"[^\\W_]+\", value) if len(word) > 1 and word.casefold() not in _STOP}\n\n\ndef _documents(text):\n    starts = [match.start() for match in re.finditer(r\"\\[DOC\\]\", text)]\n    if not starts:\n        starts = [0]\n    elif text[:starts[0]].strip():\n        starts.insert(0, 0)\n    records = []\n    for number, start in enumerate(starts):\n        end = starts[number + 1] if number + 1 < len(starts) else len(text)\n        raw = text[start:end]\n        title_marker, paragraph_marker = raw.find(\"[TLE]\"), raw.find(\"[PAR]\")\n        title_start = start + title_marker + 5 if title_marker >= 0 else start\n        title_end = start + paragraph_marker if paragraph_marker >= 0 else end\n        if title_marker < 0 or title_end < title_start:\n            title_start = title_end = start\n        while title_start < title_end and text[title_start].isspace():\n            title_start += 1\n        while title_end > title_start and text[title_end - 1].isspace():\n            title_end -= 1\n        body_start = start + paragraph_marker + 5 if paragraph_marker >= 0 else start\n        while body_start < end and text[body_start].isspace():\n            body_start += 1\n        records.append({\"doc_id\": number, \"start\": start, \"end\": end,\n                        \"title_start\": title_start, \"title_end\": title_end, \"body_start\": body_start})\n    return records\n\n\ndef run(ctx, inputs):\n    question, context = inputs.get(\"question\"), inputs.get(\"context\")\n    if not isinstance(question, str) or not isinstance(context, str):\n        return {\"status\": \"needs_input\", \"outputs\": {}, \"error\": \"question and context must be strings\"}\n    documents, clue = _documents(context), _tokens(question)\n    seen, result = {}, []\n    for doc in documents:\n        raw = context[doc[\"start\"]:doc[\"end\"]]\n        key = \" \".join(raw.casefold().split())\n        duplicate = seen.get(key)\n        seen.setdefault(key, doc[\"doc_id\"])\n        preview_end = min(doc[\"end\"], doc[\"body_start\"] + 160)\n        result.append({\"doc_id\": doc[\"doc_id\"], \"span\": [doc[\"start\"], doc[\"end\"]],\n                       \"title\": context[doc[\"title_start\"]:doc[\"title_end\"]],\n                       \"title_span\": [doc[\"title_start\"], doc[\"title_end\"]],\n                       \"preview\": context[doc[\"body_start\"]:preview_end],\n                       \"preview_span\": [doc[\"body_start\"], preview_end],\n                       \"clue_terms_present\": sorted(clue & _tokens(raw))[:32],\n                       \"duplicate_of\": duplicate})\n    report = {\"context_chars\": len(context), \"document_count\": len(documents), \"documents\": result[:64],\n              \"omitted_documents\": max(0, len(result) - 64), \"offset_unit\": \"unicode_character_end_exclusive\",\n              \"meaning\": \"Source locations and literal clue overlap only; not semantic relevance or independent corroboration.\"}\n    return {\"status\": \"ok\", \"outputs\": {\"context_index\": report}}\n",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "question",
+      "context"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "context_index": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "context_index"
+    ],
+    "additionalProperties": false
+  },
+  "allowed_tools": [],
+  "environment": {
+    "backend": "sandbox_python_v1",
+    "python": "3.12",
+    "dependencies": [
+      "openpyxl==3.1.5",
+      "pandas==2.3.3",
+      "pillow==11.3.0"
+    ],
+    "adapter_abi": "simple.v2",
+    "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+  },
+  "result_role": "intermediate",
+  "permission": "author_trusted",
+  "origin": "human_authored_post_test_development",
+  "method_version": "human.searchqa.target_reference_20261024"
+}

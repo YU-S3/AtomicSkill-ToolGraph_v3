@@ -1,0 +1,78 @@
+{
+  "passed": true,
+  "real_http": 0,
+  "source": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "driver_sha256": "ff64021f106fcfdda8f730ab9b24c2986af129468932100abbe62c393584578b",
+  "checks": [
+    {
+      "model": "minimax",
+      "mode": "normal",
+      "passed": true,
+      "intercepted_http": 6,
+      "fixture": "/home/yangchengyu/target_accuracy_offline_vwgtanbd/minimax_normal"
+    },
+    {
+      "model": "minimax",
+      "mode": "rate_limit",
+      "passed": true,
+      "intercepted_http": 3,
+      "fixture": "/home/yangchengyu/target_accuracy_offline_vwgtanbd/minimax_rate_limit"
+    },
+    {
+      "model": "glm",
+      "mode": "normal",
+      "passed": true,
+      "intercepted_http": 6,
+      "fixture": "/home/yangchengyu/target_accuracy_offline_vwgtanbd/glm_normal"
+    },
+    {
+      "model": "glm",
+      "mode": "rate_limit",
+      "passed": true,
+      "intercepted_http": 3,
+      "fixture": "/home/yangchengyu/target_accuracy_offline_vwgtanbd/glm_rate_limit"
+    },
+    {
+      "model": "glm",
+      "mode": "incomplete_stream",
+      "passed": true,
+      "intercepted_http": 3,
+      "fixture": "/home/yangchengyu/target_accuracy_offline_vwgtanbd/glm_incomplete_stream"
+    },
+    {
+      "model": "glm",
+      "mode": "incomplete_stream_unmetered",
+      "passed": true,
+      "intercepted_http": 3,
+      "fixture": "/home/yangchengyu/target_accuracy_offline_vwgtanbd/glm_incomplete_stream_unmetered"
+    },
+    {
+      "model": "gemini",
+      "mode": "normal",
+      "passed": true,
+      "intercepted_http": 6,
+      "fixture": "/home/yangchengyu/target_accuracy_offline_vwgtanbd/gemini_normal"
+    },
+    {
+      "model": "gemini",
+      "mode": "rate_limit",
+      "passed": true,
+      "intercepted_http": 3,
+      "fixture": "/home/yangchengyu/target_accuracy_offline_vwgtanbd/gemini_rate_limit"
+    }
+  ],
+  "files": {
+    "campaign.py": "ff64021f106fcfdda8f730ab9b24c2986af129468932100abbe62c393584578b",
+    "runtime.py": "054ba5cbfab090645437242122d1f480fd7ef43879baa413431a603fe784c3d1",
+    "provider_outcomes.py": "b3cf0bce45e7951ae6417b437f8fe10ba1b5c7e86975a70d80e8da2ee76dbb0f",
+    "provider_retry.py": "7668ea7bdac18bc42f81570d41abb6889bfd4e552e7e15992fa0e636067ee916",
+    "infrastructure_guard.py": "39a6e36463d6dad832bbe5c9a5c6c43429934d0d3c321d50bb225bf6b644cd3a",
+    "run_campaign.py": "e910b4a2c9cedaf656b94bd193448d0619928fae346e6f93a5aad9c4c738daee",
+    "check_offline.py": "fdbe83368ef3d83d0939a95045f750f44a47d9e9a2e03d9740fc54001f3d91e5"
+  },
+  "at": "2026-10-23T21:26:28.770976+00:00"
+}

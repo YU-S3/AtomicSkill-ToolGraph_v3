@@ -1,0 +1,50 @@
+{
+  "id": "workflow_hs_searchqa_supported_answer_target_reference_20261024",
+  "interface_version": "empirical.workflow.v2",
+  "goal": "Resolve the requested answer from supplied SearchQA evidence and submit its selected wording",
+  "method_version": "human.searchqa.target_reference_20261024",
+  "origin": "human_authored_post_test_development",
+  "nodes": [
+    {
+      "id": "solve",
+      "execution_mode": "skill",
+      "skill_id": "skill_hs_searchqa_solve_target_reference_20261024",
+      "reference_skill_ids": [
+        "skill_hs_searchqa_evidence_target_reference_20261024",
+        "skill_hs_searchqa_surface_target_reference_20261024"
+      ],
+      "args": {
+        "question": {
+          "task": "goal"
+        },
+        "context": {
+          "task": "context"
+        }
+      },
+      "after": []
+    },
+    {
+      "id": "submit",
+      "execution_mode": "skill",
+      "skill_id": "skill_hs_searchqa_submit_target_reference_20261024",
+      "args": {
+        "answer": {
+          "from": "solve",
+          "field": "answer"
+        },
+        "question": {
+          "task": "goal"
+        }
+      },
+      "after": [
+        "solve"
+      ]
+    }
+  ],
+  "outputs": {
+    "answer": {
+      "from": "submit",
+      "field": "answer"
+    }
+  }
+}

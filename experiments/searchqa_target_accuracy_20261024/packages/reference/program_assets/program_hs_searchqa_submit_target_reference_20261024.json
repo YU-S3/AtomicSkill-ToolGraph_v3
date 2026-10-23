@@ -1,0 +1,57 @@
+{
+  "id": "program_hs_searchqa_submit_target_reference_20261024",
+  "title": "Normalize supported surface encoding and numeric units, then seal one answer with an audit.",
+  "entry": "run",
+  "backend": "sandbox_python_v1",
+  "source": "\"\"\"Pure answer-surface normalization; no corpus, task IDs, facts or gold lookup.\"\"\"\nimport html\nimport re\nimport unicodedata\n\nONES = dict(zip('zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen'.split(), range(20)))\nTENS = dict(zip('twenty thirty forty fifty sixty seventy eighty ninety'.split(), range(20, 100, 10)))\n\n\ndef small_number(text):\n    parts = text.lower().replace('-', ' ').split()\n    if len(parts) == 1:\n        return ONES.get(parts[0], TENS.get(parts[0]))\n    if len(parts) == 2 and parts[0] in TENS and parts[1] in ONES and 0 < ONES[parts[1]] < 10:\n        return TENS[parts[0]] + ONES[parts[1]]\n    return None\n\n\ndef normalize(answer, question):\n    changes = []\n    body = answer.strip()\n    match = re.fullmatch(r'<answer>(.*?)</answer>', body, re.S)\n    if match:\n        body = match.group(1).strip()\n    if not body or re.search(r'</?answer\\b', body, re.I):\n        raise ValueError('Exactly one nonempty answer is required')\n    decoded = html.unescape(body)\n    if decoded != body:\n        changes.append('html_entities')\n        body = decoded\n    # Typography only: preserve accent letters and all lexical words.\n    plain = body.translate(str.maketrans({'‘': \"'\", '’': \"'\", '“': '\"', '”': '\"', '–': '-', '—': '-'}))\n    if plain != body:\n        changes.append('typographic_punctuation')\n        body = plain\n    ascii_name = unicodedata.normalize('NFC', ''.join(ch for ch in unicodedata.normalize('NFD', body) if not unicodedata.combining(ch)))\n    if ascii_name != body:\n        changes.append('latin_diacritics')\n        body = ascii_name\n    compact = re.sub(r'\\b((?:[A-Z]\\.\\s+)+)(?=[A-Z]\\.)', lambda m: re.sub(r'\\s+', '', m.group(0)), body)\n    if compact != body:\n        changes.append('compact_initials')\n        body = compact\n    quantity = bool(re.search(r'\\b(?:how many|how much|this many|this number|number of|this age|what age|how old|what percent|what percentage|this percent|this percentage)\\b', question, re.I))\n    if quantity:\n        numeric = small_number(body)\n        if numeric is not None:\n            body = str(numeric)\n            changes.append('small_quantity_digits')\n        suffix = None\n        if re.search(r'\\b(?:age|old)\\b', question, re.I):\n            suffix = r'years? old'\n        elif re.search(r'\\b(?:percent|percentage)\\b', question, re.I):\n            suffix = r'(?:percent|per cent|percentage points|%)'\n        if suffix:\n            match = re.fullmatch(r'([+-]?\\d+(?:\\.\\d+)?)\\s*' + suffix, body, re.I)\n            if match:\n                body = match.group(1)\n                changes.append('unit_already_in_question')\n    if not body or re.search(r'</?answer\\b', body, re.I):\n        raise ValueError('Decoded nested/empty answer is not allowed')\n    return body, changes\n\n\ndef run(ctx, inputs):\n    answer, question = inputs.get('answer'), inputs.get('question')\n    if not isinstance(answer, str) or not isinstance(question, str):\n        return {'status': 'needs_input', 'outputs': {}, 'error': 'answer and question strings required'}\n    try:\n        value, changes = normalize(answer, question)\n    except ValueError as error:\n        return {'status': 'needs_input', 'outputs': {}, 'error': str(error)}\n    return {'status': 'ok', 'outputs': {'answer': '<answer>' + value + '</answer>',\n        'surface_audit': {'raw_answer': answer, 'normalized_answer': value, 'changes': changes,\n                          'semantic_validation': False}}}\n",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "answer": {
+        "type": "string",
+        "minLength": 1
+      },
+      "question": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "answer",
+      "question"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "answer": {
+        "type": "string",
+        "minLength": 1
+      },
+      "surface_audit": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "answer",
+      "surface_audit"
+    ],
+    "additionalProperties": false
+  },
+  "allowed_tools": [],
+  "environment": {
+    "backend": "sandbox_python_v1",
+    "python": "3.12",
+    "dependencies": [
+      "openpyxl==3.1.5",
+      "pandas==2.3.3",
+      "pillow==11.3.0"
+    ],
+    "adapter_abi": "simple.v2",
+    "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+  },
+  "result_role": "final_answer",
+  "permission": "author_trusted",
+  "origin": "human_authored_post_test_development",
+  "method_version": "human.searchqa.target_reference_20261024"
+}
