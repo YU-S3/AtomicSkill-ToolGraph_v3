@@ -81,8 +81,8 @@ class OpenAICompatibleConfig:
             raise ValueError('Explicit thinking budget requires enabled Qwen3.8 thinking in 1..262144')
         if self.image_input is not None and 'image' not in self.input_modalities:
             raise ValueError('Image input policy requires a visual capability lock')
-        defaults = {'tools':True, 'thinking':self.dialect in {'deepseek_v4_chat', 'moonshot_k2_chat', 'glm_53_chat', 'minimax_m3_chat', 'qwen_38_chat'},
-                    'reasoning_effort':self.dialect in {'deepseek_v4_chat','glm_53_chat','qwen_38_chat'},
+        defaults = {'tools':True, 'thinking':self.dialect in {'deepseek_v4_chat', 'moonshot_k2_chat', 'glm_53_chat', 'minimax_m3_chat', 'qwen_38_chat', 'rootflow_gemini38_chat'},
+                    'reasoning_effort':self.dialect in {'deepseek_v4_chat','glm_53_chat','qwen_38_chat','rootflow_gemini38_chat'},
                     'generation_seed':self.dialect=='qwen_38_chat'}
         if self.capability_profile is not None and (not isinstance(self.capability_profile,dict) or
                 set(self.capability_profile)-set(defaults) or any(type(v) is not bool for v in self.capability_profile.values())):
@@ -95,8 +95,22 @@ class OpenAICompatibleConfig:
             raise ValueError("base_url must be an absolute http(s) URL")
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError("base_url must not contain credentials, query parameters, or fragments")
-        if self.dialect not in {'deepseek_v4_chat', 'openai_chat', 'moonshot_k2_chat', 'glm_53_chat', 'minimax_m3_chat', 'qwen_38_chat'}:
+        if self.dialect not in {'deepseek_v4_chat', 'openai_chat', 'moonshot_k2_chat', 'glm_53_chat', 'minimax_m3_chat', 'qwen_38_chat', 'rootflow_gemini38_chat'}:
             raise ValueError('Unsupported provider dialect')
+        if self.dialect == 'rootflow_gemini38_chat':
+            if self.model!='gemini-3.8-flash' or self.base_url.rstrip('/') not in {
+                    'https://api.rootflowai.com/v1','https://api.rootflowai.com/v1/chat/completions'}:
+                raise ValueError('RootFlow Gemini profile requires its documented endpoint and model ID')
+            if self.api_key_env!='ROOTFLOWAI_API_KEY':
+                raise ValueError('RootFlow requires its own ROOTFLOWAI_API_KEY')
+            if self.thinking_type!='enabled' or not self.capability_profile['thinking']:
+                raise ValueError('Gemini 3.8 requires enabled thinking')
+            if self.reasoning_effort not in {'low','medium','high'} or not self.capability_profile['reasoning_effort']:
+                raise ValueError('Gemini 3.8 reasoning_effort must be low, medium or high')
+            if self.capability_profile['generation_seed'] or self.generation_seed is not None:
+                raise ValueError('RootFlow Gemini generation seed support is not established')
+            if self.token_limit_field!='max_tokens' or type(self.max_completion_tokens) is not int or not 1<=self.max_completion_tokens<=65536:
+                raise ValueError('RootFlow Gemini profile requires max_tokens in 1..65536; relay semantics need live validation')
         if self.dialect == 'moonshot_k2_chat' and (self.capability_profile['reasoning_effort'] or self.capability_profile['generation_seed']):
             raise ValueError('Moonshot K2 has no configured reasoning_effort or generation seed support')
         if self.dialect == 'glm_53_chat':
@@ -184,6 +198,15 @@ class OpenAICompatibleConfig:
             "max_retries": self.max_retries,
             "capability_profile": dict(self.capability_profile),
             **({'stream':True} if self.stream else {}),
+            **({'rootflow_protocol':{'version':'rootflow.gemini38.chat.v2',
+                'access':'third-party compatible relay; not Google direct',
+                'capability_basis':'RootFlow endpoint/model listing plus upstream Google compatibility reference',
+                'relay_capabilities_live_verified':False,
+                'thought_signature':'preserve returned extra_content exactly in replay',
+                'tool_choice':'auto; single named submission mapped and host validated',
+                'requested_output_cap_semantics':'combined thinking and text; relay verification pending',
+                'billing':'reported raw total_tokens; never infer unavailable reasoning tokens'}}
+                if self.dialect=='rootflow_gemini38_chat' else {}),
             **({'glm_protocol':{'version':'bigmodel.glm53.chat.v1','clear_thinking':False,
                 'temperature':1.0,'top_p':0.95,'tool_choice':'auto only; single named submission mapped and host validated',
                 'tool_stream':self.stream,'stream_usage':'native final chunk; no stream_options'}} if self.dialect=='glm_53_chat' else {}),
@@ -250,8 +273,9 @@ class OpenAICompatibleProvider:
         self, messages: list[AgentMessage], tools: list[NativeToolSpec] | None,
         tool_choice: dict | str | None = None,
     ) -> dict[str, Any]:
-        normalized_messages = _validate_deepseek_messages(messages, allow_images='image' in self.config.input_modalities)
-        if self.config.dialect not in {'deepseek_v4_chat', 'moonshot_k2_chat', 'glm_53_chat', 'minimax_m3_chat', 'qwen_38_chat'}:
+        normalized_messages = _validate_deepseek_messages(messages, allow_images='image' in self.config.input_modalities,
+            allow_extra_content=self.config.dialect=='rootflow_gemini38_chat')
+        if self.config.dialect not in {'deepseek_v4_chat', 'moonshot_k2_chat', 'glm_53_chat', 'minimax_m3_chat', 'qwen_38_chat', 'rootflow_gemini38_chat'}:
             normalized_messages = [{k:v for k,v in m.items() if k != 'reasoning_content'} for m in normalized_messages]
         normalized_tools = list(tools or [])
         if not all(isinstance(tool, NativeToolSpec) for tool in normalized_tools):
@@ -268,7 +292,7 @@ class OpenAICompatibleProvider:
             if self.config.dialect!='glm_53_chat':payload['stream_options']={'include_usage':True}
         if self.config.capability_profile['reasoning_effort'] and self.config.thinking_budget is None and not (self.config.dialect=='qwen_38_chat' and self.config.thinking_type=='disabled'):
             payload['reasoning_effort'] = self.config.wire_reasoning_effort
-        if self.config.capability_profile['thinking']:
+        if self.config.capability_profile['thinking'] and self.config.dialect!='rootflow_gemini38_chat':
             payload['thinking'] = {'type': self.config.thinking_type}
         if self.config.dialect=='glm_53_chat':
             payload['thinking']['clear_thinking']=False
@@ -301,13 +325,13 @@ class OpenAICompatibleProvider:
                         payload['tool_choice']='auto'
                     else:payload['tool_choice']=copy.deepcopy(tool_choice)
                 else:raise ValueError('Qwen3.8 does not support required or an unknown named tool')
-            elif self.config.dialect=='glm_53_chat':
+            elif self.config.dialect in {'glm_53_chat','rootflow_gemini38_chat'}:
                 if tool_choice=='auto':
                     payload['tool_choice']='auto'
                 elif (len(normalized_tools)==1 and tool_choice=={'type':'function','function':{'name':normalized_tools[0].name}}):
-                    # Auto-only API: keep one submission Schema and host validation.
+                    # Conservative auto profile: keep the submission Schema and host validation.
                     payload['tool_choice']='auto'
-                else:raise ValueError('GLM 5.3 supports auto or a single matching submission tool only')
+                else:raise ValueError('This provider profile supports auto or a single matching submission tool only')
             elif self.config.dialect == 'moonshot_k2_chat' and isinstance(tool_choice, str):
                 if tool_choice not in {'auto', 'none'}:
                     raise ValueError('Moonshot K2 string tool_choice must be auto or none')
@@ -355,6 +379,8 @@ class OpenAICompatibleProvider:
                 raise ValueError('Request completion cap must be positive')
             if self.config.dialect=='glm_53_chat' and max_completion_tokens>131072:
                 raise ValueError('GLM 5.3 max_tokens exceeds 131072')
+            if self.config.dialect=='rootflow_gemini38_chat' and max_completion_tokens>65536:
+                raise ValueError('Gemini 3.8 output cap exceeds 65536')
             if self.config.dialect in {'minimax_m3_chat','qwen_38_chat'} and max_completion_tokens>(524288 if self.config.dialect=='minimax_m3_chat' else 131072):
                 raise ValueError('Model output cap exceeds documented maximum')
             payload[self.config.token_limit_field] = max_completion_tokens
@@ -615,6 +641,14 @@ class OpenAICompatibleProvider:
                 if journal:journal.write(raw.decode('utf-8')+'\n')
                 for key in ('id','model','created','system_fingerprint'):
                     if key not in chunk:continue
+                    if key=='system_fingerprint' and self.config.dialect=='rootflow_gemini38_chat':
+                        # RootFlow emits null on content chunks and "" on its
+                        # final usage chunk. Both mean absent optional metadata,
+                        # not a new response. Nonempty fingerprints stay strict.
+                        stamp=chunk[key]
+                        if stamp is not None and not isinstance(stamp,str):
+                            raise ValueError('Invalid SSE system_fingerprint')
+                        if stamp in (None,''):continue
                     if key=='created' and self.config.dialect in {'minimax_m3_chat','qwen_38_chat'}:
                         # These APIs emit event timestamps, including a possibly earlier
                         # final usage timestamp. Response id/model remain strict identities.
@@ -641,6 +675,8 @@ class OpenAICompatibleProvider:
                 for choice in chunk.get('choices',[]):
                     if choice.get('index',0)!=0:raise ValueError('Unexpected additional streamed choice')
                     delta=choice.get('delta',{})
+                    if self.config.dialect=='rootflow_gemini38_chat' and 'extra_content' in delta:
+                        _merge_replay_metadata(message,delta['extra_content'])
                     for key in ('content','reasoning_content'):
                         fragment=delta.get(key)
                         if fragment is not None:
@@ -650,6 +686,8 @@ class OpenAICompatibleProvider:
                         index=fragment.get('index')
                         if type(index) is not int or index<0:raise ValueError('Invalid streamed tool index')
                         call=calls.setdefault(index,{'id':'','type':'function','function':{'name':'','arguments':''}})
+                        if self.config.dialect=='rootflow_gemini38_chat' and 'extra_content' in fragment:
+                            _merge_replay_metadata(call,fragment['extra_content'])
                         if fragment.get('id'):call['id']+=fragment['id']
                         if fragment.get('type') not in (None,'function'):raise ValueError('Invalid streamed tool type')
                         for key in ('name','arguments'):
@@ -730,6 +768,14 @@ class OpenAICompatibleProvider:
         }
         if '_stream_created' in data:
             metadata['stream_created']=copy.deepcopy(data['_stream_created'])
+        if self.config.dialect=='rootflow_gemini38_chat':
+            # A relay's reported total is authoritative. Google compatibility
+            # routes may not include thoughts in completion_tokens; do not
+            # fabricate a decomposition from a difference between counters.
+            metadata['reasoning_tokens_in_completion']=None
+            metadata['reported_total_minus_prompt_and_completion']=(
+                usage['total_tokens']-usage['prompt_tokens']-usage['completion_tokens'])
+            metadata['transport_provenance']='rootflow_compatible_relay'
         request_id = _provider_request_id(response, data)
         if request_id:
             metadata["request_id"] = request_id
@@ -797,6 +843,16 @@ class OpenAICompatibleProvider:
         }
         if raw_calls:
             replay_message["tool_calls"] = copy.deepcopy(raw_calls)
+        if self.config.dialect=='rootflow_gemini38_chat':
+            try:
+                if 'extra_content' in message:
+                    _merge_replay_metadata(replay_message,message['extra_content'])
+                for raw_call in raw_calls:
+                    if 'extra_content' in raw_call:
+                        _merge_replay_metadata({},raw_call['extra_content'])
+            except (TypeError,ValueError) as exc:
+                self._raise_protocol('provider_invalid_response',str(exc),usage,latency_ms,metadata,
+                    content=content,reasoning_content=reasoning_content,finish_reason=finish_reason)
         return AgentTurn(
             content=content,
             tool_calls=calls,
@@ -958,7 +1014,24 @@ class OpenAICompatibleProvider:
         time.sleep(min(base + jitter, self.config.max_retry_after_seconds))
 
 
-def _validate_deepseek_messages(messages: list[AgentMessage], *, allow_images=False) -> list[AgentMessage]:
+def _merge_replay_metadata(target: dict, value: Any) -> None:
+    """Keep opaque Gemini replay data; never concatenate or invent signatures.
+
+    A signature can arrive in a later empty-text SSE delta. Repeated identical
+    fields are harmless; conflicting values make the response unreplayable.
+    """
+    if not isinstance(value,dict):
+        raise ValueError('Gemini extra_content must be an object')
+    json.dumps(value,ensure_ascii=False,allow_nan=False)
+    def merge(dst,src):
+        for key,item in src.items():
+            if key not in dst:dst[key]=copy.deepcopy(item)
+            elif isinstance(dst[key],dict) and isinstance(item,dict):merge(dst[key],item)
+            elif dst[key]!=item:raise ValueError('Conflicting Gemini replay metadata')
+    merge(target.setdefault('extra_content',{}),value)
+
+
+def _validate_deepseek_messages(messages: list[AgentMessage], *, allow_images=False, allow_extra_content=False) -> list[AgentMessage]:
     if not isinstance(messages, list) or not messages:
         raise ValueError("provider request requires a non-empty messages list")
     normalized = copy.deepcopy(messages)
@@ -985,6 +1058,9 @@ def _validate_deepseek_messages(messages: list[AgentMessage], *, allow_images=Fa
             "assistant": {"role", "content", "reasoning_content", "tool_calls"},
             "tool": {"role", "tool_call_id", "content"},
         }[str(role)]
+        if role=='assistant' and allow_extra_content:
+            allowed=allowed|{'extra_content'}
+            if 'extra_content' in message:_merge_replay_metadata({},message['extra_content'])
         extras = set(message) - allowed
         if extras:
             raise ValueError(f"message {index} has unsupported DeepSeek fields: {sorted(extras)}")
