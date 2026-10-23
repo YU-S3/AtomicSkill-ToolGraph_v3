@@ -26,9 +26,13 @@ def main():
     parser.add_argument('--skill-revision', choices=['v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13'], default='v6',
                         help='Manual single-node Skill to import into a fresh Bank')
     parser.add_argument('--principles', default='', help='Comma-separated v8/v10/v11/v12/v13 rule IDs; empty selects only the core')
+    parser.add_argument('--task-token-limit', type=int, default=96000,
+                        help='Explicit approved per-task token ceiling; defaults to the original 96000')
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
+    if args.task_token_limit <= 0:
+        parser.error('--task-token-limit must be positive')
     args.single_node = args.single_node or args.single_node_crop
     if not args.single_node and args.guidance_role != 'user':
         parser.error('--guidance-role applies only to single-node evaluation')
@@ -100,7 +104,7 @@ def main():
             config['experiment']['docvqa_human_reference']['skill_revision'] = args.skill_revision
             if args.submission_contract != 'legacy':
                 config['experiment']['docvqa_human_reference']['submission_contract'] = args.submission_contract
-        config['budget'].update(limits,train_task_tokens=96000,eval_task_tokens=96000)
+        config['budget'].update(limits,train_task_tokens=args.task_token_limit,eval_task_tokens=args.task_token_limit)
         config['budget'].pop('train_solve_tokens',None);config['budget'].pop('train_learning_tokens',None)
         config['program_worker']['record_execution_receipt']=True
         write_json(root/'import_config.json',config)
@@ -135,7 +139,7 @@ def main():
             'method_version':METHOD,'bank_digest':manual['bank_digest'],'view_hash':view_hash,
             'wrapper_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             'selection':selection,'selection_hash':digest(selection),'canonical_split_hash':sha256(authority/'docvqa'/(split+'.json')),
-            'campaign_budget':str(campaign/'budget.json'),'run_seed':42,'generation_seed_status':'unsupported'}
+            'campaign_budget':str(campaign/'budget.json'),'run_seed':42,'generation_seed_status':'supported' if config['llm'].get('generation_seed_supported') else 'unsupported'}
         plan={'identity':identity,'config':config}
         if (root/'plan.json').exists() and json.loads((root/'plan.json').read_text())!=plan:raise ValueError('Frozen plan changed')
         write_json(root/'plan.json',plan)
