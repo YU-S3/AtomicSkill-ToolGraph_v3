@@ -1,6 +1,7 @@
 """Read-only paired evaluation; explicit source, selection and shared metered budget."""
 import argparse
 from copy import deepcopy
+from contextlib import nullcontext
 import fcntl
 import hashlib
 import json
@@ -29,6 +30,7 @@ def main():
     parser.add_argument('--task-token-limit', type=int, default=96000,
                         help='Explicit approved per-task token ceiling; defaults to the original 96000')
     parser.add_argument('--resume', action='store_true')
+    parser.add_argument('--retry-policy', help='Explicitly authorized bounded infrastructure retry policy JSON')
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
     if args.task_token_limit <= 0:
@@ -70,6 +72,13 @@ def main():
     authority=repo/'data/main_experiment_v1';verify(authority)
     canonical=json.loads((authority/'docvqa'/(split+'.json')).read_text())['tasks']
     config=deepcopy(json.loads(Path(args.config).read_text()))
+    retry_policy = json.loads(Path(args.retry_policy).read_text()) if args.retry_policy else None
+    if retry_policy:
+        from provider_retry import RetryGovernor, retry_guard, validate_policy
+        validate_policy(retry_policy)
+        if args.task_token_limit != retry_policy['per_attempt_task_tokens'] or config['llm'].get('max_retries') != 0:
+            raise ValueError('Retry policy/task cap differ or provider retry loop is enabled')
+        config['experiment']['infrastructure_retry_policy'] = retry_policy
     datasets=Path(config['harness']['evaluator_records']).parent.parent
     material=json.loads((datasets/'materialization.json').read_text())
     if material['authority_sha256']!=sha256(authority/'manifest.json'):raise ValueError('Materialization authority differs')
@@ -146,11 +155,14 @@ def main():
         if args.check:print(json.dumps({'ready':True,'tasks':len(tasks),'method':METHOD,'http':0}));return
         load_env(args.env_file)
         log=FormalLog(root,identity,config,resume=args.resume)
-        governor=BudgetGovernor(campaign/'budget.json',**limits)
+        governor=(RetryGovernor(campaign/'budget.json',policy=retry_policy,**limits) if retry_policy
+                  else BudgetGovernor(campaign/'budget.json',**limits))
         before=tree_identity(root/'bank')['sha256']
         log.freeze(root/'bank',newly_created=not (root/'final_frozen_manifest.json').exists())
         try:
-            with image_result_bridge(**({'guidance_role': args.guidance_role,
+            guard = retry_guard(governor, root/'infrastructure_retries',
+                lambda: (root/split/'STOP_AFTER_TASK').exists()) if retry_policy else nullcontext()
+            with guard, image_result_bridge(**({'guidance_role': args.guidance_role,
                 'evidence_interface': args.evidence_interface,
                 'submission_contract': args.submission_contract} if args.single_node else {})):
                 summary=run(config,tasks,root/split,readonly=True,resume=args.resume,
@@ -158,7 +170,8 @@ def main():
                     task_metadata={x['task_id']:x['task_metadata'] for x in canonical},freeze_on_complete=False)
             after=tree_identity(root/'bank')['sha256']
             if before!=after:raise RuntimeError('Read-only Bank changed')
-            if not summary['complete'] or summary['unknown_billing_attempts']:raise RuntimeError('Incomplete/unmetered run')
+            if not summary['complete'] or governor.billing_blocked or (summary['unknown_billing_attempts'] and not retry_policy):
+                raise RuntimeError('Incomplete run or unauthorized unknown billing')
             cases=summary['cases']
             result={'complete':True,'tasks':len(cases),'correct':summary['successes'],
                 'anls':sum(t['score']['soft'] for t in cases)/len(cases),'tokens':summary['known_total_tokens'],
@@ -166,6 +179,11 @@ def main():
                 'programs':summary['program_invocations'],'bank_before':before,'bank_after':after,
                 'unknown_billing':summary['unknown_billing_attempts'],
                 'http':sum(len(r.get('http_attempts',[])) for t in cases for r in t['requests'])}
+            if retry_policy:
+                attempts=list(governor.state['attempts'].values())
+                result['cumulative_billing']={'known_tokens':sum(a.get('accounted_tokens',0) for a in attempts),
+                    'unknown_reserved_tokens':sum(a['reserved_tokens'] for a in attempts if a['status']!='metered'),
+                    'unknown_attempts':sum(a['status']!='metered' for a in attempts),'http':len(attempts)}
             write_json(root/'result.json',result)
             log.finish('completed');print(json.dumps(result),flush=True)
         except BaseException:
