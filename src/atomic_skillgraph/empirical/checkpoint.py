@@ -7,8 +7,14 @@ from uuid import uuid4
 
 def native_event_restorable(event, specs, sealed_workspace=False):
     """Completed local refusals never reached a backend; unknown effects still block."""
+    result = event.get('result', {})
+    data = result.get('data')
+    effect = specs.get(event.get('name'), {}).get('effect')
+    unchanged_compute = (effect == 'sandbox_compute' and event.get('backend_invoked') is True and result.get('accepted') is True
+        and isinstance(data, dict) and data.get('files') == [] and data.get('deleted_files') == []
+        and result.get('local_artifact_hashes') == {} and result.get('local_artifact_identities') == {})
     return event.get('state') == 'finished' and (
-        sealed_workspace or specs.get(event.get('name'), {}).get('effect') == 'read_only'
+        sealed_workspace or effect == 'read_only' or unchanged_compute
         or (event.get('backend_invoked') is False and
             (event.get('result', {}).get('accepted') is False or event.get('local_result_read') is True)))
 

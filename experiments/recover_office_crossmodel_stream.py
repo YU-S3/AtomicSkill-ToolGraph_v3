@@ -16,7 +16,7 @@ c = runner.common
 BASE = Path('/home/yangchengyu/officeqa_humanstrong_v13_rules_crossmodel_test102_schema_r1_seed42_20261022')
 
 
-def prepare(root, base=BASE):
+def prepare(root, base=BASE, *, failure_kind='incomplete_stream', authorization=None, source_changes=None):
     if root.exists(): raise ValueError('Continuation needs a fresh directory')
     code = c.code_identity()
     assert code['git_sha'] and not code['tracked_dirty']
@@ -37,10 +37,17 @@ def prepare(root, base=BASE):
     audit_paths = list((source/'requests').glob('*.json'))
     attempts = [a for p in audit_paths for q in c.read(p)['requests'] for a in q.get('http_attempts',[])]
     error = [a for a in attempts if a['request_id']==request_id]
-    assert len(error)==1 and error[0]['error_code']=='provider_transport_error'
-    stream = error[0].get('response_diagnostic',{}).get('stream',{})
-    assert stream.get('events',0)>0 and stream.get('completed') is False and not stream.get('usage_received')
-    assert error[0].get('raw_usage') is None and stream.get('finish_reason') is None
+    assert len(error)==1 and error[0].get('raw_usage') is None
+    if failure_kind=='incomplete_stream':
+        assert error[0]['error_code']=='provider_transport_error'
+        stream = error[0].get('response_diagnostic',{}).get('stream',{})
+        assert stream.get('events',0)>0 and stream.get('completed') is False and not stream.get('usage_received')
+        assert stream.get('finish_reason') is None
+    elif failure_kind=='gateway_timeout':
+        assert authorization and error[0]['error_code']=='provider_timeout' and error[0]['http_status']==504
+        diagnostic=error[0].get('response_diagnostic',{}).get('error',{})
+        assert diagnostic.get('type')=='gateway_timeout' or diagnostic.get('code')=='gateway_timeout'
+    else:raise ValueError('Unsupported reviewed transport failure')
     states = list((source/'checkpoints').glob('*/*/state.json'))
     assert len(states)==1
     saved = c.read(states[0]);assert not saved.get('program_started')
@@ -54,8 +61,9 @@ def prepare(root, base=BASE):
     assert ledger['limits']==original['ledger_limits'] and used<ledger['limits']['token_limit']<=runner.CEILING
     root.mkdir(parents=True)
     c.save_json(root/'budget_prefix.json',ledger)
-    receipt=ledger['inherited_reservation_recovery']
-    receipt['authorization'] += (' User requested repair/continuation on 2026-10-22. '
+    receipt=ledger.setdefault('inherited_reservation_recovery',
+        {'schema':'billing-reservation-recovery.v1','authorization':'','attempts':{}})
+    receipt['authorization'] += authorization or (' User requested repair/continuation on 2026-10-22. '
         'Retain this one incomplete-stream reservation at its full upper bound; all task and cumulative limits unchanged. '
         'Resume the checkpoint once; do not replay completed actions or tasks; no automatic unlimited retries.')
     receipt['attempts'][request_id]={'entry_hash':c.digest(charge),'reserved_tokens':charge['reserved_tokens']}
@@ -104,8 +112,9 @@ def prepare(root, base=BASE):
         'interrupted_episode':str(source),'retained_native_events':len(events),'unknown_request_id':request_id,
         'unknown_tokens_reserved':charge['reserved_tokens'],'parent_budget_scope':owner,
         'limits_unchanged':ledger['limits'],'public_inputs_bank_and_inference_unchanged':True,
-        'source_changes':['Allow restoration of completed tool refusals with backend_invoked=false.',
-                          'Report known tokens separately when an interrupted request has unknown billing.']}
+        'source_changes':source_changes if source_changes is not None else [
+            'Allow restoration of completed tool refusals with backend_invoked=false.',
+            'Report known tokens separately when an interrupted request has unknown billing.']}
     plan={**original,'created_at':c.utc(),'code':code,'base_run':str(base),'episodes':episodes,
         'protected_files':protected,'inherited_used_or_reserved':used,'recovery':recovery,
         'new_token_cap':ledger['limits']['token_limit']-used,
