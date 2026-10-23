@@ -1,0 +1,25 @@
+{
+  "parent": "/home/yangchengyu/searchqa_minimax_r2_test1400_seed42_20261023",
+  "parent_budget_sha256": "0a067bc6421762d1ea9564ae3c0c316290d33627a83e0e182260b154c25290cd",
+  "parent_completed": {
+    "r2": {
+      "completed": 228,
+      "total": 228,
+      "correct": 199,
+      "tokens": 710271,
+      "native_graphs": 228,
+      "program_calls": 228,
+      "program_ok": 228
+    }
+  },
+  "prior_searchqa_tokens": 8377072,
+  "prior_searchqa_http": 2424,
+  "limits": {
+    "token_limit": 13821713,
+    "request_limit": 3795,
+    "finish_reserve": 0
+  },
+  "no_limit_increase": true,
+  "old_unknown_reservations_retained": true,
+  "old_excluded_200_effective_cost_stays_excluded": true
+}

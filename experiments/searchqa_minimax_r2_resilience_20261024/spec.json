@@ -1,0 +1,20 @@
+{
+  "tasks": "/mnt/d/T3S_exp/deliveries/searchqa_minimax_r2_resilience_20261024/remaining_tasks.json",
+  "base_config": "/mnt/d/T3S_exp/deliveries/searchqa_minimax_r2_resilience_20261024/base_config.json",
+  "arms": {
+    "r2": {
+      "kind": "native",
+      "package": "/home/yangchengyu/searchqa_minimax_r2_test1400_seed42_20261023/fulltest1400/r2/input",
+      "frozen_source": "/home/yangchengyu/searchqa_minimax_r2_test1400_seed42_20261023/fulltest1400/r2/frozen_bank"
+    }
+  },
+  "replay_sources": {
+    "r2": {
+      "searchqa:345d4dc06c7e4bd0bf02d54c83af22f0": {
+        "path": "/home/yangchengyu/searchqa_minimax_r2_test1400_seed42_20261023/fulltest1400/r2/test/requests/searchqa:345d4dc06c7e4bd0bf02d54c83af22f0_attempt1.json",
+        "audit_digest": "84b21c1e10a6151f57f29e8c7ef8624190516111dae9551bceb70e484052e7c5"
+      }
+    }
+  },
+  "purpose": "Continue MiniMax R2 full Test1400 after 228 tasks. Score the saved provider refusal without another HTTP request. Same Bank/input/model/scorer. Bounded transient retries, conservative unknown billing, no limit increase."
+}

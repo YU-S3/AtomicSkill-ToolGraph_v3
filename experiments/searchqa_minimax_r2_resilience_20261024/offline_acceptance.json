@@ -1,0 +1,82 @@
+{
+  "passed": true,
+  "real_http": 0,
+  "checks": [
+    {
+      "mode": "saved_refusal",
+      "passed": true,
+      "intercepted_http": 1,
+      "fixture": "/home/yangchengyu/minimax_resilience_checks_bh0v_ual/saved_refusal"
+    },
+    {
+      "mode": "new_refusal",
+      "passed": true,
+      "intercepted_http": 2,
+      "fixture": "/home/yangchengyu/minimax_resilience_checks_bh0v_ual/new_refusal"
+    },
+    {
+      "mode": "native_refusal",
+      "passed": true,
+      "intercepted_http": 2,
+      "fixture": "/home/yangchengyu/minimax_resilience_checks_bh0v_ual/native_refusal"
+    },
+    {
+      "mode": "overload",
+      "passed": true,
+      "intercepted_http": 3,
+      "fixture": "/home/yangchengyu/minimax_resilience_checks_bh0v_ual/overload"
+    },
+    {
+      "mode": "timeout",
+      "passed": true,
+      "intercepted_http": 3,
+      "fixture": "/home/yangchengyu/minimax_resilience_checks_bh0v_ual/timeout"
+    },
+    {
+      "mode": "unknown_422",
+      "passed": true,
+      "intercepted_http": 1,
+      "fixture": "/home/yangchengyu/minimax_resilience_checks_bh0v_ual/unknown_422"
+    },
+    {
+      "mode": "auth",
+      "passed": true,
+      "intercepted_http": 1,
+      "fixture": "/home/yangchengyu/minimax_resilience_checks_bh0v_ual/auth"
+    },
+    {
+      "mode": "docker_after_response",
+      "passed": true,
+      "intercepted_http": 2,
+      "fixture": "/home/yangchengyu/minimax_resilience_checks_bh0v_ual/docker_after_response"
+    },
+    {
+      "mode": "retry_limit",
+      "passed": true,
+      "intercepted_http": 4,
+      "resume_additional_http": 0
+    },
+    {
+      "mode": "retry_budget",
+      "passed": true,
+      "intercepted_http": 1,
+      "resume_additional_http": 0
+    }
+  ],
+  "driver_sha256": "ff64021f106fcfdda8f730ab9b24c2986af129468932100abbe62c393584578b",
+  "files": {
+    "campaign.py": "ff64021f106fcfdda8f730ab9b24c2986af129468932100abbe62c393584578b",
+    "runtime.py": "054ba5cbfab090645437242122d1f480fd7ef43879baa413431a603fe784c3d1",
+    "provider_outcomes.py": "b3cf0bce45e7951ae6417b437f8fe10ba1b5c7e86975a70d80e8da2ee76dbb0f",
+    "provider_retry.py": "1d30cdd21c66b35a6a8062682569016d6beca7e2370a6e380ce64176834695fa",
+    "infrastructure_guard.py": "39a6e36463d6dad832bbe5c9a5c6c43429934d0d3c321d50bb225bf6b644cd3a",
+    "continue_test.py": "773c198a17e2e4f477dd84ab4bc157f3b71f757dd5c7619e805ad61e9f19fcc0",
+    "check_offline.py": "baf5372b3f6599fc6a6f6b5d6474d06911e2d50bc421eea293ed4206b3b174da"
+  },
+  "source": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "at": "2026-10-23T16:24:47.578744+00:00"
+}

@@ -1,0 +1,49 @@
+{
+  "parent": "/home/yangchengyu/searchqa_minimax_r2_test1400_seed42_20261023",
+  "at": "2026-10-23T16:25:29.405577+00:00",
+  "parent_plan_sha256": "338e6952bcd4171eb57f86e95b25c696db1afbf72c60ec898dddf6d962d7795e",
+  "child_plan_sha256": "f5d5bf80070296d767bd1646f48aca712ebb236f558c86346dd1338b1a3a3980",
+  "source": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "parent_completed": 228,
+  "saved_refusal_replayed_without_http": true,
+  "normal_model_parameters_and_bank_unchanged": true,
+  "retry_policy": {
+    "version": "bounded-provider-retry.v1",
+    "max_retries": 3,
+    "backoff_seconds": [
+      10,
+      30,
+      60
+    ],
+    "minimum_completion_cap": 1024,
+    "http_statuses": [
+      408,
+      429,
+      500,
+      502,
+      503,
+      504,
+      529
+    ],
+    "minimax_codes": [
+      1000,
+      1001,
+      1002,
+      1013,
+      1024,
+      1033,
+      1041,
+      1045,
+      2062,
+      2064,
+      2066
+    ],
+    "billing": "Every physical attempt is retained; absent usage keeps its full reservation.",
+    "payload": "Same messages/tools/model; retry output cap can only shrink to fit existing task/global budgets.",
+    "exhaustion": "Stop without scoring; never reset the retry allowance on resume."
+  }
+}

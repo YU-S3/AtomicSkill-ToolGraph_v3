@@ -1,0 +1,46 @@
+{
+  "status": "approved",
+  "user_request": "补齐修复然后续跑，补齐相关重试机制让其能自己跑完。",
+  "at": "2026-10-23T16:25:29.078096+00:00",
+  "limits": {
+    "token_limit": 13821713,
+    "request_limit": 3795,
+    "finish_reserve": 0
+  },
+  "retry_policy": {
+    "version": "bounded-provider-retry.v1",
+    "max_retries": 3,
+    "backoff_seconds": [
+      10,
+      30,
+      60
+    ],
+    "minimum_completion_cap": 1024,
+    "http_statuses": [
+      408,
+      429,
+      500,
+      502,
+      503,
+      504,
+      529
+    ],
+    "minimax_codes": [
+      1000,
+      1001,
+      1002,
+      1013,
+      1024,
+      1033,
+      1041,
+      1045,
+      2062,
+      2064,
+      2066
+    ],
+    "billing": "Every physical attempt is retained; absent usage keeps its full reservation.",
+    "payload": "Same messages/tools/model; retry output cap can only shrink to fit existing task/global budgets.",
+    "exhaustion": "Stop without scoring; never reset the retry allowance on resume."
+  },
+  "scope": "Continue the same 1400-task experiment; retain unknown costs; no budget increase."
+}
