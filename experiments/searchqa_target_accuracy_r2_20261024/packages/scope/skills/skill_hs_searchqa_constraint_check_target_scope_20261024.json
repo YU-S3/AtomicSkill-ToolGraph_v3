@@ -1,0 +1,56 @@
+{
+  "id": "skill_hs_searchqa_constraint_check_target_scope_20261024",
+  "goal": "Verify exact quotes and flag visible word or letter constraints without grading semantic correctness.",
+  "guidance": "Check a concrete candidate, exact source quote, or stated length issue. Bind output constraint_check to the same-named optional solve input. Flags are advisory: a length phrase may describe an anchor, and a valid alias may be absent from the text. Revise only the affected claim; never invent a hidden grading result.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      },
+      "answer": {
+        "type": "string",
+        "minLength": 1
+      },
+      "quotes": {
+        "type": "array",
+        "maxItems": 8,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1200
+        }
+      }
+    },
+    "required": [
+      "question",
+      "context",
+      "answer"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "constraint_check": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "constraint_check"
+    ],
+    "additionalProperties": false
+  },
+  "execution_intent": "procedural",
+  "result_role": "intermediate",
+  "method_version": "human.searchqa.target_scope_20261024",
+  "origin": "human_authored_post_test_development",
+  "state": "authored",
+  "permission": "author_trusted",
+  "applicability": {
+    "selector": "always"
+  }
+}

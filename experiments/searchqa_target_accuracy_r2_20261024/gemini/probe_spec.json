@@ -1,0 +1,20 @@
+{
+  "tasks": "/mnt/d/T3S_exp/deliveries/searchqa_target_accuracy_r2_20261024/probe96_public.json",
+  "base_config": "/mnt/d/T3S_exp/deliveries/searchqa_target_accuracy_r2_20261024/gemini/base_config.json",
+  "arms": {
+    "baseline": {
+      "kind": "native",
+      "package": "/home/yangchengyu/searchqa_v7_gemini38_test1400_seed42_20261023/fulltest1400/v7_text_compiler/input",
+      "frozen_source": "/home/yangchengyu/searchqa_v7_gemini38_test1400_seed42_20261023/fulltest1400/v7_text_compiler/frozen_bank"
+    },
+    "scope": {
+      "kind": "native",
+      "package": "/mnt/d/T3S_exp/deliveries/searchqa_target_accuracy_r2_20261024/packages/scope"
+    },
+    "gepa": {
+      "kind": "native",
+      "package": "/mnt/d/T3S_exp/deliveries/searchqa_target_accuracy_r2_20261024/packages/gepa"
+    }
+  },
+  "purpose": "User-authorized post-Test authored development; fixed 96 paired comparison with unchanged public inputs, provider parameters and scorer. Candidate choice precedes new full Test1400."
+}

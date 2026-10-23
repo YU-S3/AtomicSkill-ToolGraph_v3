@@ -1,0 +1,12 @@
+{
+  "version": "human.searchqa.target_scope_20261024",
+  "parent_bundle_sha256": "b68385324ee6ccec31485ea0c2d12b624c567684742c8b39536adec72f097332",
+  "variant": "scope",
+  "reference_card_count": 3,
+  "normal_model_calls": 1,
+  "author_trusted_not_learned": true,
+  "post_test_development": true,
+  "gold_runtime_input": false,
+  "source_prompts_sha256": "de7de1a80eceaef866a6e54b725efad260cbff156165e4e7b45e582d997cad3e",
+  "scope": "Missing-role and minimal-complete-span constraints; conditionally selected factual background; pure audited submission typography. No reference answers per task."
+}

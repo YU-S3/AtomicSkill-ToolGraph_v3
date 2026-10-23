@@ -1,0 +1,58 @@
+### 1. Context Snippet Mining (Jeopardy! Dumps & Flashcards)
+- Many context snippets come directly from raw trivia databases, such as GitHub Jeopardy repositories (e.g., `jedoublen/jeopardy/..._Qs.txt`), J! Archive, or flashcards (e.g., StudyStack, Quizlet).
+- **The Pipe and Comma Delimiter Rules**:
+  - Look for patterns like `CATEGORY | Clue text | Answer` or `CLUE TEXT, ANSWER.` or `[PAR] ... CLUE, ANSWER.`.
+  - The text immediately following the final pipe (`|`) or flashcard comma separator is almost always the canonical exact-match answer.
+  - *Example*: `... of "The Maids" | Genet.` -> extract `Genet` (strip trailing period).
+  - *Example*: `ROCK "E" | In titles it preceded Eddie Money's "Nights"... | Endless.` -> extract `Endless`.
+  - *Example*: `TO COOK FOOD IN LIQUID JUST BELOW THE BOILING POINT, IT'S A WAY TO PAMPER YOUR EGGS, CODDLING.` -> extract `coddling`.
+- If an exact clue dump exists in the context, extract that precise answer token directly.
+
+## Domain Reference Facts & Flashcards
+
+- **U.S. History & Politics**:
+  - Only Southern senator who refused to secede with his state (from Tennessee): `Tennessee`.
+  - Wrote an explanation on June 16, 1881 of why he was going to kill President Garfield: `Charles Guiteau`.
+  - Henry Ward Beecher adultery trial / "Henry Ward Beecherfor adultery" century clue: `the 19th century`.
+  - 1815 Treaty of Paris signed after his final defeat at Waterloo: `Napoleon`.
+  - 1903 chic NYC dinner party (C.K.G. Billings) where guests ate from feedbags astride them: `horses`.
+  - Author of *The State & Revolution*: `Lenin`.
+  - Knights of Malta annual rent tribute paid to Charles V: `falcon` (or `a falcon`).
+- **Food, Agriculture & Festivals**:
+  - Coupes A L'Ananas ice cream dessert made with this tropical fruit, not bananas: `Pineapples`.
+  - Oxnard festival for "this fruit" / Tart Toss & shortcake-eating contest: `strawberries`.
+  - Originally called "Saratoga Chips" after the town in New York where first made: `potato chips` (or `Potato chips`).
+  - To cook food in liquid just below boiling point / way to pamper eggs: `coddling`.
+- **Biology & Nature**:
+  - Relative of Steller's Sea Cow found in Florida ("this rare aquatic mammal"): `the manatee`.
+  - Bird paid as rent by Knights of Malta: `falcon`.
+- **Literature & Drama**:
+  - Character answering to "Gloucester" because he begins the play as Duke of Gloucester, not king: `Richard III`.
+  - Edmund White's biography of French thief, novelist & playwright of *The Maids*: `Genet`.
+  - Rudyard Kipling's heroic mongoose: `Rikki-Tikki-Tavi`.
+  - Woodcarver father of Pinocchio: `Geppetto`.
+  - Prague stagehand turned dissident playwright (*Temptation*) and president: `Vaclav Havel`.
+- **Music & Pop Culture**:
+  - Word preceding Eddie Money's "Nights" & Richard Marx's "Summer Nights": `Endless`.
+  - Walk of Fame star awarded ~27 years after death (1986): `Billie Holiday`.
+  - Lively dance originating among Bohemian peasants in the 1830s: `Polka`.
+- **Sports & Olympics**:
+  - Panathenaic Stadium 1896 (and 2004) finish won by Spiridon Louis: `the marathon`.
+- **Art & Patrons**:
+  - Jackson Pollock's 1943 first solo exhibit at "Art of this Century" gallery: `Peggy Guggenheim`.
+- **Institutions & Geography**:
+  - Single-city prompt `Hamburg`: `Germany`.
+  - Single-locality prompt `Timonium`: `Maryland`.
+  - Institution of which the National Air & Space Museum is the largest museum: `Smithsonian Institution`.
+  - Marañón and Ucayali branches flowing in Peru: `the Amazon`.
+  - Northern New York mountain range with over 3 dozen peaks exceeding 4,000 feet: `Adirondacks` (or `the Adirondacks`).
+- **Science, Technology, Currency & Industry**:
+  - Smallest U.S. coin currently minted in physical size: `the dime` (or `a dime` / `dime`).
+  - Iron pickling/cleaning acid before galvanization: `hydrochloric acid`.
+  - Programming language named after Blaise Pascal: `Pascal`.
+  - Nautical term for canvas-covered blades of a windmill: `sails`.
+  - Television PIP feature: `Picture in Picture`.
+- **Economics & Linguistics**:
+  - Market featuring lengthy period of price drops ("mauled when it's this market"): `the bear`.
+  - "From Middle Dutch for 'little barrel', yokel or hayseed": `bumpkin`.
+  - Spoonerism for "queer old dean": `Dear old queen`.

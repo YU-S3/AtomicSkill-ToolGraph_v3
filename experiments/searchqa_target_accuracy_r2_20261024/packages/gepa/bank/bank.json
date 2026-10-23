@@ -1,0 +1,678 @@
+{
+  "schema": "human.frontier.bank.v1",
+  "benchmark": "searchqa",
+  "method_version": "human.searchqa.target_gepa_20261024",
+  "parent_method_version": "human.searchqa.target_scope_20261024",
+  "trust": "author_trusted",
+  "default_workflow_id": "workflow_hs_searchqa_supported_answer_target_gepa_20261024",
+  "measured_performance": null,
+  "development_exposure": "Post-Test development. Full user-supplied GEPA seed44 strategy and Train-derived fact reminders transferred verbatim into three Ours Atomic Skills; no Test gold, task IDs or per-task answer lookup in runtime.",
+  "runtime": "Native solve -> submit. One model solve; pure submit normalizes declared surface forms and records original/normalized values. Public fact cards are part of the evidence Atomic Skill.",
+  "sources": [
+    {
+      "url": "https://www.doi.gov/bureaus",
+      "card_id": "us_interior_bureaus",
+      "checked_on": "2026-10-23"
+    },
+    {
+      "url": "https://www.senate.gov/about/officers-staff/vice-president/vice-presidents.htm",
+      "card_id": "us_vice_president_pairs_1913_1973",
+      "checked_on": "2026-10-23"
+    },
+    {
+      "url": "https://www.senate.gov/artandhistory/history/common/briefing/Constitution_Senate.htm",
+      "card_id": "us_senate_constitution",
+      "checked_on": "2026-10-23"
+    }
+  ],
+  "skill": [
+    {
+      "id": "skill_hs_searchqa_solve_target_gepa_20261024",
+      "goal": "Fill the requested unknown using the full supplied context and conditional answer-span rules.",
+      "guidance": "You are an expert question answering agent.\n\n## Skill\n# Question Answering Skill\n\nYou are an expert trivia question answering agent. Your task is to provide the exact, canonical answer to trivia questions (frequently styled after *Jeopardy!* clues, crossword clues, or quiz bowl prompts) using the provided question and context snippets.\n\n## Output Format\n- Wrap your final answer strictly inside `<answer>...</answer>` tags (e.g., `<answer>Tennessee</answer>` or `<answer>strawberries</answer>`).\n- Output ONLY the `<answer>...</answer>` tags and the target answer text. Do not include commentary, explanations, reasoning, or extra punctuation outside the tags.\n\n### 3. Handling Telegraphic Clues, Single-Locality Prompts, & Category Omissions\n- **Single Locality / City Names**:\n  - When a prompt consists solely of a city or locality name without a question sentence:\n    - Major world cities (e.g., `Hamburg`) -> standard country: `Germany`.\n    - U.S. towns/communities (e.g., `Timonium`) -> standard state: `Maryland`.\n- **Centuries / Dates**:\n  - If a clue is a telegraphic phrase or name-event pairing without an overt interrogative pronoun (e.g., `\"Henry Ward Beecherfor adultery\"`), it frequently stems from a time-period category (e.g., \"CENTURIES\", \"NAME THE CENTURY\", or \"THE 1800s\"). Check whether the event occurred in a prominent historical era or century (e.g., `the 19th century`).\n\n### 4. Surnames, Mononyms, & Regnal Names vs. Full Names\n- **Monarchs, Emperors, and World Leaders standardly known by Single Name**:\n  - Write standard mononyms or regnal names without surnames:\n    - Write `Napoleon` (NOT `Napoleon Bonaparte`).\n    - Write `Charlemagne`.\n    - Write `Richard III` (for regnal names/Shakespearean characters).\n    - Write `Lenin` (NOT `Vladimir Lenin`).\n- **Authors, Playwrights, Poets, Philosophers, and Scientists**:\n  - Jeopardy! standard convention allows and records **SURNAME ONLY**:\n    - Write `Genet` (NOT `Jean Genet`).\n    - Write `Pascal` (NOT `Blaise Pascal`).\n    - Write `Havel` (or `Vaclav Havel`).\n- **Assassins, Notorious Criminals, and Infamous Figures**:\n  - Presidential assassins and infamous historical figures are standardly known and recorded by their **FULL NAME** (First + Last, or full name):\n    - Write `Charles Guiteau` (NOT just `Guiteau`).\n    - Write `John Wilkes Booth`, `Lee Harvey Oswald`.\n- **Modern Entertainers, Pop Culture Figures, & Art Patrons**:\n  - Figures normally known by a full professional name retain both: `Billie Holiday`, `Peggy Guggenheim`, `Eddie Money`, `Richard Marx`.\n  - Figures prior to a famous name change: `Cassius Clay`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "context_index": {
+            "type": "object"
+          },
+          "evidence_windows": {
+            "type": "object"
+          },
+          "constraint_check": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "question",
+          "context"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "answer"
+        ],
+        "additionalProperties": false
+      },
+      "execution_intent": "guidance_only",
+      "result_role": "intermediate",
+      "method_version": "human.searchqa.target_gepa_20261024",
+      "origin": "human_authored_post_test_development",
+      "state": "authored",
+      "permission": "author_trusted",
+      "applicability": {
+        "selector": "always"
+      }
+    },
+    {
+      "id": "skill_hs_searchqa_evidence_target_gepa_20261024",
+      "goal": "Connect distinctive clue facts within real document and answer-field boundaries.",
+      "guidance": "### 1. Context Snippet Mining (Jeopardy! Dumps & Flashcards)\n- Many context snippets come directly from raw trivia databases, such as GitHub Jeopardy repositories (e.g., `jedoublen/jeopardy/..._Qs.txt`), J! Archive, or flashcards (e.g., StudyStack, Quizlet).\n- **The Pipe and Comma Delimiter Rules**:\n  - Look for patterns like `CATEGORY | Clue text | Answer` or `CLUE TEXT, ANSWER.` or `[PAR] ... CLUE, ANSWER.`.\n  - The text immediately following the final pipe (`|`) or flashcard comma separator is almost always the canonical exact-match answer.\n  - *Example*: `... of \"The Maids\" | Genet.` -> extract `Genet` (strip trailing period).\n  - *Example*: `ROCK \"E\" | In titles it preceded Eddie Money's \"Nights\"... | Endless.` -> extract `Endless`.\n  - *Example*: `TO COOK FOOD IN LIQUID JUST BELOW THE BOILING POINT, IT'S A WAY TO PAMPER YOUR EGGS, CODDLING.` -> extract `coddling`.\n- If an exact clue dump exists in the context, extract that precise answer token directly.\n\n## Domain Reference Facts & Flashcards\n\n- **U.S. History & Politics**:\n  - Only Southern senator who refused to secede with his state (from Tennessee): `Tennessee`.\n  - Wrote an explanation on June 16, 1881 of why he was going to kill President Garfield: `Charles Guiteau`.\n  - Henry Ward Beecher adultery trial / \"Henry Ward Beecherfor adultery\" century clue: `the 19th century`.\n  - 1815 Treaty of Paris signed after his final defeat at Waterloo: `Napoleon`.\n  - 1903 chic NYC dinner party (C.K.G. Billings) where guests ate from feedbags astride them: `horses`.\n  - Author of *The State & Revolution*: `Lenin`.\n  - Knights of Malta annual rent tribute paid to Charles V: `falcon` (or `a falcon`).\n- **Food, Agriculture & Festivals**:\n  - Coupes A L'Ananas ice cream dessert made with this tropical fruit, not bananas: `Pineapples`.\n  - Oxnard festival for \"this fruit\" / Tart Toss & shortcake-eating contest: `strawberries`.\n  - Originally called \"Saratoga Chips\" after the town in New York where first made: `potato chips` (or `Potato chips`).\n  - To cook food in liquid just below boiling point / way to pamper eggs: `coddling`.\n- **Biology & Nature**:\n  - Relative of Steller's Sea Cow found in Florida (\"this rare aquatic mammal\"): `the manatee`.\n  - Bird paid as rent by Knights of Malta: `falcon`.\n- **Literature & Drama**:\n  - Character answering to \"Gloucester\" because he begins the play as Duke of Gloucester, not king: `Richard III`.\n  - Edmund White's biography of French thief, novelist & playwright of *The Maids*: `Genet`.\n  - Rudyard Kipling's heroic mongoose: `Rikki-Tikki-Tavi`.\n  - Woodcarver father of Pinocchio: `Geppetto`.\n  - Prague stagehand turned dissident playwright (*Temptation*) and president: `Vaclav Havel`.\n- **Music & Pop Culture**:\n  - Word preceding Eddie Money's \"Nights\" & Richard Marx's \"Summer Nights\": `Endless`.\n  - Walk of Fame star awarded ~27 years after death (1986): `Billie Holiday`.\n  - Lively dance originating among Bohemian peasants in the 1830s: `Polka`.\n- **Sports & Olympics**:\n  - Panathenaic Stadium 1896 (and 2004) finish won by Spiridon Louis: `the marathon`.\n- **Art & Patrons**:\n  - Jackson Pollock's 1943 first solo exhibit at \"Art of this Century\" gallery: `Peggy Guggenheim`.\n- **Institutions & Geography**:\n  - Single-city prompt `Hamburg`: `Germany`.\n  - Single-locality prompt `Timonium`: `Maryland`.\n  - Institution of which the National Air & Space Museum is the largest museum: `Smithsonian Institution`.\n  - Marañón and Ucayali branches flowing in Peru: `the Amazon`.\n  - Northern New York mountain range with over 3 dozen peaks exceeding 4,000 feet: `Adirondacks` (or `the Adirondacks`).\n- **Science, Technology, Currency & Industry**:\n  - Smallest U.S. coin currently minted in physical size: `the dime` (or `a dime` / `dime`).\n  - Iron pickling/cleaning acid before galvanization: `hydrochloric acid`.\n  - Programming language named after Blaise Pascal: `Pascal`.\n  - Nautical term for canvas-covered blades of a windmill: `sails`.\n  - Television PIP feature: `Picture in Picture`.\n- **Economics & Linguistics**:\n  - Market featuring lengthy period of price drops (\"mauled when it's this market\"): `the bear`.\n  - \"From Middle Dutch for 'little barrel', yokel or hayseed\": `bumpkin`.\n  - Spoonerism for \"queer old dean\": `Dear old queen`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "context"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "execution_intent": "guidance_only",
+      "result_role": "intermediate",
+      "method_version": "human.searchqa.target_gepa_20261024",
+      "origin": "human_authored_post_test_development",
+      "state": "authored",
+      "permission": "author_trusted",
+      "applicability": {
+        "selector": "always"
+      },
+      "reference_cards": [],
+      "embedded_reference_blocks": [
+        {
+          "id": "supplied_gepa_seed44_train_facts",
+          "source_sha256": "de7de1a80eceaef866a6e54b725efad260cbff156165e4e7b45e582d997cad3e",
+          "injection": "complete block inside evidence Atomic guidance"
+        }
+      ]
+    },
+    {
+      "id": "skill_hs_searchqa_surface_target_gepa_20261024",
+      "goal": "Select the exact amount of supported wording without blanket name or suffix rules.",
+      "guidance": "### 2. Number, Countability, and Pluralization Rules (Crucial)\nTrivia benchmarks frequently expect standard plural forms for fruits, vegetables, snacks, and countable food items:\n- **Fruits & Berries**:\n  - When clues ask for fruits or berries (e.g., festival fruit, pie filling, dessert ingredients, crop types), **default to the plural form**:\n    - \"Coupes A L'Ananas are ice cream desserts made with this tropical fruit, not bananas\" -> `Pineapples` (NOT `pineapple`; note the plural parallel with \"bananas\").\n    - Oxnard festival for \"this fruit\" / Tart Toss / shortcake -> `strawberries` (NOT `strawberry`).\n    - Blueberries, raspberries, blackberries, cranberries, cherries -> prefer plural unless the singular form is part of a strict proper title.\n- **Snacks, Vegetables, and Common Food Items**:\n  - Saratoga chips / thin fried snack -> `potato chips`.\n  - French fries, peanuts, etc. -> standard plural form.\n- **Countable Nouns vs. Single Specific Objects**:\n  - Check the grammatical referent of the clue. When \"they\" or a plural pronoun refers to the food/object, or when contrasted with a plural noun, keep it plural (`potato chips`, `strawberries`, `pineapples`, `horses`).\n\n### 5. Articles (\"The\", \"A\", \"An\") and Clue Phrasing\n- **Grammatical Clue Referents (\"this [noun]\")**:\n  - When the clue asks for an animal, coin, species, entity, event, or concept using \"this [noun]\" or \"1 of these [nouns]\", standard Jeopardy phrasing accepts either the bare noun or a/the:\n    - \"Knights of Malta paid ... annual rent of 1 of these birds\" -> `falcon` (or `a falcon`).\n    - \"Of the U.S. coins currently being minted, it's the smallest in size\" -> `the dime` (or `a dime` / `dime`).\n    - \"Steller's Sea Cow was a relative of this rare aquatic mammal found in Florida\" -> `the manatee`.\n    - \"had the finish of this, won back then by... Spiridon Louis\" -> `the marathon`.\n    - \"when it's this market that features a lengthy period of price drops\" -> `the bear`.\n- **Geographic Entities**:\n  - Retain \"the\" for geographical features that conventionally take the definite article:\n    - Rivers: `the Amazon`, `the Nile`, `the Mississippi`, `the Thames`.\n    - Deserts: `the Sahara`, `the Mojave`, `the Gobi`.\n    - Plural mountain ranges & archipelagos: `the Alps`, `the Rockies`, `the Adirondacks`, `the Bahamas`.\n  - Do NOT append redundant generic geographic nouns (e.g., write `the Amazon`, NOT `Amazon River`).\n  - States, provinces, and countries should be standard bare proper nouns: `Tennessee`, `Maryland`, `Germany`.\n- **General Rule**: Strip leading articles (\"the\", \"a\", \"an\") for standalone titles and proper nouns unless grammatically intrinsic or required by the rules above.\n\n### 6. Diacritics, Accents, and ASCII Normalization\n- Strip all accent marks, carons, umlauts, acutes, graves, and tildes from proper nouns and foreign names:\n  - Write `Vaclav Havel` (NOT `Václav Havel`).\n  - Write `Dvorak` (NOT `Dvořák`).\n  - Write `Moliere` (NOT `Molière`).\n  - Write `Cezanne` (NOT `Cézanne`).\n\n## Task Format\nYou will receive a CONTEXT containing document passages and a QUESTION.\nRead the context carefully and answer the question based on the information provided.\n\n## Answer Format\nThink step by step, then provide your final answer inside <answer>...</answer> tags.\nKeep your answer concise — typically a few words or a short phrase.\nDo not repeat the question. Do not include unnecessary explanation in the answer tags.\n\nExample:\n<answer>Abraham Lincoln</answer>",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "context"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "execution_intent": "guidance_only",
+      "result_role": "intermediate",
+      "method_version": "human.searchqa.target_gepa_20261024",
+      "origin": "human_authored_post_test_development",
+      "state": "authored",
+      "permission": "author_trusted",
+      "applicability": {
+        "selector": "always"
+      }
+    },
+    {
+      "id": "skill_hs_searchqa_context_index_target_gepa_20261024",
+      "goal": "Locate document/title/body boundaries and literal clue terms; never select the answer by overlap.",
+      "guidance": "Use only for a concrete document-boundary or duplicate-source issue. Pass original question and context via existing input ResultRefs. Bind output context_index to the same-named optional solve input and mark it used only after the real index informs the answer. Clue overlap is navigation, never semantic proof.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "context"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "context_index": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "context_index"
+        ],
+        "additionalProperties": false
+      },
+      "execution_intent": "procedural",
+      "result_role": "intermediate",
+      "method_version": "human.searchqa.target_gepa_20261024",
+      "origin": "human_authored_post_test_development",
+      "state": "authored",
+      "permission": "author_trusted",
+      "applicability": {
+        "selector": "always"
+      }
+    },
+    {
+      "id": "skill_hs_searchqa_evidence_windows_target_gepa_20261024",
+      "goal": "Locate exact source windows and explicitly delimited matching trivia fields for semantic review.",
+      "guidance": "Use only when a specific supporting passage or explicit answer-field boundary needs locating. Query may contain distinctive clue words or a candidate; default is the original question. Read returned raw quotes in their own DOC. Bind output evidence_windows to the same-named optional solve input. Explicit fields and lexical rankings still need target-type and relation checks.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "top_k": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          }
+        },
+        "required": [
+          "question",
+          "context"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "evidence_windows": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "evidence_windows"
+        ],
+        "additionalProperties": false
+      },
+      "execution_intent": "procedural",
+      "result_role": "intermediate",
+      "method_version": "human.searchqa.target_gepa_20261024",
+      "origin": "human_authored_post_test_development",
+      "state": "authored",
+      "permission": "author_trusted",
+      "applicability": {
+        "selector": "always"
+      }
+    },
+    {
+      "id": "skill_hs_searchqa_constraint_check_target_gepa_20261024",
+      "goal": "Verify exact quotes and flag visible word or letter constraints without grading semantic correctness.",
+      "guidance": "Check a concrete candidate, exact source quote, or stated length issue. Bind output constraint_check to the same-named optional solve input. Flags are advisory: a length phrase may describe an anchor, and a valid alias may be absent from the text. Revise only the affected claim; never invent a hidden grading result.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quotes": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1200
+            }
+          }
+        },
+        "required": [
+          "question",
+          "context",
+          "answer"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "constraint_check": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "constraint_check"
+        ],
+        "additionalProperties": false
+      },
+      "execution_intent": "procedural",
+      "result_role": "intermediate",
+      "method_version": "human.searchqa.target_gepa_20261024",
+      "origin": "human_authored_post_test_development",
+      "state": "authored",
+      "permission": "author_trusted",
+      "applicability": {
+        "selector": "always"
+      }
+    },
+    {
+      "id": "skill_hs_searchqa_submit_target_gepa_20261024",
+      "goal": "Normalize supported surface encoding and numeric units, then seal one answer with an audit.",
+      "guidance": "Execute the declared pure Program with the current public question and the solve answer. It records original and normalized values; it cannot select identities, remove names, or infer semantic correctness.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "question": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "question"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "surface_audit": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "answer",
+          "surface_audit"
+        ],
+        "additionalProperties": false
+      },
+      "execution_intent": "procedural",
+      "result_role": "final_answer",
+      "method_version": "human.searchqa.target_gepa_20261024",
+      "origin": "human_authored_post_test_development",
+      "state": "authored",
+      "permission": "author_trusted",
+      "applicability": {
+        "selector": "always"
+      }
+    }
+  ],
+  "program": [
+    {
+      "id": "program_hs_searchqa_context_index_target_gepa_20261024",
+      "title": "Locate document/title/body boundaries and literal clue terms; never select the answer by overlap.",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "source": "\"\"\"Index supplied SearchQA document boundaries; offsets are Unicode character offsets.\"\"\"\nimport re\n\n_STOP = set(\"a an the of in on at to for from and or by with is was are were be been this that these those it its as who what which when where how his her their has have had not one named called\".split())\n\n\ndef _tokens(value):\n    return {word.casefold() for word in re.findall(r\"[^\\W_]+\", value) if len(word) > 1 and word.casefold() not in _STOP}\n\n\ndef _documents(text):\n    starts = [match.start() for match in re.finditer(r\"\\[DOC\\]\", text)]\n    if not starts:\n        starts = [0]\n    elif text[:starts[0]].strip():\n        starts.insert(0, 0)\n    records = []\n    for number, start in enumerate(starts):\n        end = starts[number + 1] if number + 1 < len(starts) else len(text)\n        raw = text[start:end]\n        title_marker, paragraph_marker = raw.find(\"[TLE]\"), raw.find(\"[PAR]\")\n        title_start = start + title_marker + 5 if title_marker >= 0 else start\n        title_end = start + paragraph_marker if paragraph_marker >= 0 else end\n        if title_marker < 0 or title_end < title_start:\n            title_start = title_end = start\n        while title_start < title_end and text[title_start].isspace():\n            title_start += 1\n        while title_end > title_start and text[title_end - 1].isspace():\n            title_end -= 1\n        body_start = start + paragraph_marker + 5 if paragraph_marker >= 0 else start\n        while body_start < end and text[body_start].isspace():\n            body_start += 1\n        records.append({\"doc_id\": number, \"start\": start, \"end\": end,\n                        \"title_start\": title_start, \"title_end\": title_end, \"body_start\": body_start})\n    return records\n\n\ndef run(ctx, inputs):\n    question, context = inputs.get(\"question\"), inputs.get(\"context\")\n    if not isinstance(question, str) or not isinstance(context, str):\n        return {\"status\": \"needs_input\", \"outputs\": {}, \"error\": \"question and context must be strings\"}\n    documents, clue = _documents(context), _tokens(question)\n    seen, result = {}, []\n    for doc in documents:\n        raw = context[doc[\"start\"]:doc[\"end\"]]\n        key = \" \".join(raw.casefold().split())\n        duplicate = seen.get(key)\n        seen.setdefault(key, doc[\"doc_id\"])\n        preview_end = min(doc[\"end\"], doc[\"body_start\"] + 160)\n        result.append({\"doc_id\": doc[\"doc_id\"], \"span\": [doc[\"start\"], doc[\"end\"]],\n                       \"title\": context[doc[\"title_start\"]:doc[\"title_end\"]],\n                       \"title_span\": [doc[\"title_start\"], doc[\"title_end\"]],\n                       \"preview\": context[doc[\"body_start\"]:preview_end],\n                       \"preview_span\": [doc[\"body_start\"], preview_end],\n                       \"clue_terms_present\": sorted(clue & _tokens(raw))[:32],\n                       \"duplicate_of\": duplicate})\n    report = {\"context_chars\": len(context), \"document_count\": len(documents), \"documents\": result[:64],\n              \"omitted_documents\": max(0, len(result) - 64), \"offset_unit\": \"unicode_character_end_exclusive\",\n              \"meaning\": \"Source locations and literal clue overlap only; not semantic relevance or independent corroboration.\"}\n    return {\"status\": \"ok\", \"outputs\": {\"context_index\": report}}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "context"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "context_index": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "context_index"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "permission": "author_trusted",
+      "origin": "human_authored_post_test_development",
+      "method_version": "human.searchqa.target_gepa_20261024"
+    },
+    {
+      "id": "program_hs_searchqa_evidence_windows_target_gepa_20261024",
+      "title": "Locate exact source windows and explicitly delimited matching trivia fields for semantic review.",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "source": "\"\"\"Return exact bounded source windows and conservatively detected explicit QA fields.\n\nLexical ranking is navigation, not an answer selector. No network, labels or lookup table.\n\"\"\"\nimport math\nimport re\n\n_STOP = set(\"a an the of in on at to for from and or by with is was are were be been this that these those it its as who what which when where how his her their has have had not one named called\".split())\n\n\ndef _tokens(value):\n    return {word.casefold() for word in re.findall(r\"[^\\W_]+\", value) if len(word) > 1 and word.casefold() not in _STOP}\n\n\ndef _norm(value):\n    return \" \".join(re.findall(r\"[^\\W_]+\", value.casefold()))\n\n\ndef _documents(text):\n    starts = [match.start() for match in re.finditer(r\"\\[DOC\\]\", text)]\n    if not starts:\n        starts = [0]\n    elif text[:starts[0]].strip():\n        starts.insert(0, 0)\n    records = []\n    for number, start in enumerate(starts):\n        end = starts[number + 1] if number + 1 < len(starts) else len(text)\n        raw = text[start:end]\n        title_marker, paragraph_marker = raw.find(\"[TLE]\"), raw.find(\"[PAR]\")\n        title_start = start + title_marker + 5 if title_marker >= 0 else start\n        title_end = start + paragraph_marker if paragraph_marker >= 0 else end\n        if title_marker < 0 or title_end < title_start:\n            title_start = title_end = start\n        while title_start < title_end and text[title_start].isspace():\n            title_start += 1\n        while title_end > title_start and text[title_end - 1].isspace():\n            title_end -= 1\n        body_start = start + paragraph_marker + 5 if paragraph_marker >= 0 else start\n        while body_start < end and text[body_start].isspace():\n            body_start += 1\n        records.append({\"doc_id\": number, \"start\": start, \"end\": end,\n                        \"title_start\": title_start, \"title_end\": title_end, \"body_start\": body_start})\n    return records\n\n\ndef _explicit_fields(text, question, documents):\n    fields, target = [], _norm(question)\n    if not target:\n        return fields\n    labelled = re.compile(r\"(?:^|\\n)[ \\t]*(?:Q(?:uestion)?|Clue)[ \\t]*:[ \\t]*(?P<q>[^\\n]+?)\"\n                          r\"(?:[ \\t]+|\\n[ \\t]*)(?:A(?:nswer)?)[ \\t]*:[ \\t]*(?P<a>[^\\n]+)\", re.I)\n    for doc in documents:\n        body = text[doc[\"body_start\"]:doc[\"end\"]]\n        matches = []\n        for match in labelled.finditer(body):\n            matches.append((match.group(\"q\"), match.span(\"q\"), match.group(\"a\"), match.span(\"a\"), \"explicit_Q_A_labels\"))\n        cursor = 0\n        for line in body.splitlines(keepends=True):\n            cells = list(re.finditer(r\"[^|\\t\\r\\n]+\", line))\n            if \"|\" in line or \"\\t\" in line:\n                for left, right in zip(cells, cells[1:]):\n                    matches.append((left.group(), (cursor + left.start(), cursor + left.end()),\n                                    right.group(), (cursor + right.start(), cursor + right.end()), \"explicit_pipe_or_tab_fields\"))\n            cursor += len(line)\n        for clue, clue_span, answer, answer_span, form in matches:\n            if _norm(clue) != target or not answer.strip() or len(answer.strip()) > 256:\n                continue\n            left = len(answer) - len(answer.lstrip())\n            right = len(answer.rstrip())\n            start, end = doc[\"body_start\"] + answer_span[0] + left, doc[\"body_start\"] + answer_span[0] + right\n            if any(field[\"answer_span\"] == [start, end] for field in fields):\n                continue\n            fields.append({\"doc_id\": doc[\"doc_id\"], \"candidate\": text[start:end], \"answer_span\": [start, end],\n                           \"clue_span\": [doc[\"body_start\"] + clue_span[0], doc[\"body_start\"] + clue_span[1]],\n                           \"boundary_evidence\": form, \"clue_match\": \"all_normalized_words_in_order\",\n                           \"semantic_status\": \"unverified; check requested type, relation, and answer form\"})\n    return fields\n\n\ndef run(ctx, inputs):\n    question, context = inputs.get(\"question\"), inputs.get(\"context\")\n    query, top_k = inputs.get(\"query\", question), inputs.get(\"top_k\", 4)\n    if not isinstance(question, str) or not isinstance(context, str) or not isinstance(query, str):\n        return {\"status\": \"needs_input\", \"outputs\": {}, \"error\": \"question, context and query must be strings\"}\n    if isinstance(top_k, bool) or not isinstance(top_k, int) or not 1 <= top_k <= 6:\n        return {\"status\": \"needs_input\", \"outputs\": {}, \"error\": \"top_k must be an integer from 1 to 6\"}\n    documents, terms = _documents(context), _tokens(query)\n    doc_terms = [_tokens(context[doc[\"start\"]:doc[\"end\"]]) for doc in documents]\n    weights = {term: math.log(1 + (len(documents) + 1) / (1 + sum(term in group for group in doc_terms))) for term in terms}\n    candidates = []\n    for doc in documents:\n        title = context[doc[\"title_start\"]:doc[\"title_end\"]]\n        title_hits = terms & _tokens(title)\n        body_start, end = doc[\"body_start\"], doc[\"end\"]\n        starts = list(range(body_start, max(body_start + 1, end), 320))\n        for start in starts:\n            stop = min(end, start + 560)\n            quote = context[start:stop]\n            hits = terms & _tokens(quote)\n            score = sum(weights[term] for term in hits) + 0.35 * sum(weights[term] for term in title_hits)\n            candidates.append({\"doc_id\": doc[\"doc_id\"], \"span\": [start, stop], \"quote\": quote,\n                               \"title\": title, \"title_span\": [doc[\"title_start\"], doc[\"title_end\"]],\n                               \"matched_terms\": sorted(hits | title_hits), \"lexical_score\": round(score, 6)})\n    candidates.sort(key=lambda item: (-item[\"lexical_score\"], item[\"doc_id\"], item[\"span\"][0]))\n    windows, seen, per_doc = [], set(), {}\n    for candidate in candidates:\n        key = \" \".join(candidate[\"quote\"].casefold().split())\n        if not key or key in seen or per_doc.get(candidate[\"doc_id\"], 0) >= 2:\n            continue\n        seen.add(key)\n        per_doc[candidate[\"doc_id\"]] = per_doc.get(candidate[\"doc_id\"], 0) + 1\n        windows.append(candidate)\n        if len(windows) >= top_k:\n            break\n    fields = _explicit_fields(context, question, documents)\n    report = {\"query\": query, \"windows\": windows, \"explicit_qa_fields\": fields[:6],\n              \"omitted_qa_fields\": max(0, len(fields) - 6), \"source_document_count\": len(documents),\n              \"offset_unit\": \"unicode_character_end_exclusive\", \"searched_source\": \"only_supplied_context\",\n              \"meaning\": \"Lexical navigation and explicit field boundaries, not semantic proof, gold prediction, or a calibrated confidence score.\"}\n    return {\"status\": \"ok\", \"outputs\": {\"evidence_windows\": report}}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "top_k": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          }
+        },
+        "required": [
+          "question",
+          "context"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "evidence_windows": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "evidence_windows"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "permission": "author_trusted",
+      "origin": "human_authored_post_test_development",
+      "method_version": "human.searchqa.target_gepa_20261024"
+    },
+    {
+      "id": "program_hs_searchqa_constraint_check_target_gepa_20261024",
+      "title": "Verify exact quotes and flag visible word or letter constraints without grading semantic correctness.",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "source": "\"\"\"Check exact source quotes and visible textual constraints without semantic grading.\"\"\"\nimport re\n\n_NUMBERS = {name: value for value, name in enumerate(\"zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty\".split())}\n_NUMBER = r\"(?:[1-9][0-9]?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\"\n\n\ndef _documents(text):\n    starts = [match.start() for match in re.finditer(r\"\\[DOC\\]\", text)]\n    if not starts:\n        starts = [0]\n    elif text[:starts[0]].strip():\n        starts.insert(0, 0)\n    return [(start, starts[i + 1] if i + 1 < len(starts) else len(text)) for i, start in enumerate(starts)]\n\n\ndef _occurrences(text, value, documents):\n    if not value:\n        return []\n    result = []\n    for match in re.finditer(re.escape(value), text):\n        number = next((i for i, (start, end) in enumerate(documents) if start <= match.start() and match.end() <= end), None)\n        result.append({\"span\": [match.start(), match.end()], \"doc_id\": number, \"within_single_doc\": number is not None})\n        if len(result) >= 12:\n            break\n    return result\n\n\ndef run(ctx, inputs):\n    question, context, answer = inputs.get(\"question\"), inputs.get(\"context\"), inputs.get(\"answer\")\n    quotes = inputs.get(\"quotes\", [])\n    if not all(isinstance(value, str) for value in (question, context, answer)) or not answer.strip():\n        return {\"status\": \"needs_input\", \"outputs\": {}, \"error\": \"question/context strings and a nonempty answer are required\"}\n    if not isinstance(quotes, list) or len(quotes) > 8 or any(not isinstance(quote, str) or not quote or len(quote) > 1200 for quote in quotes):\n        return {\"status\": \"needs_input\", \"outputs\": {}, \"error\": \"quotes must contain at most 8 nonempty strings of at most 1200 characters\"}\n    documents, quote_checks, flags = _documents(context), [], []\n    for quote in quotes:\n        matches = _occurrences(context, quote, documents)\n        status = \"exact_single_doc\" if any(item[\"within_single_doc\"] for item in matches) else \"cross_document\" if matches else \"not_found\"\n        quote_checks.append({\"quote\": quote, \"status\": status, \"occurrences\": matches})\n        if status != \"exact_single_doc\":\n            flags.append({\"kind\": \"quote_\" + status, \"quote_index\": len(quote_checks) - 1})\n    constraints = []\n    for unit in (\"letter\", \"word\"):\n        pattern = re.compile(r\"\\b(?P<n>\" + _NUMBER + r\")[ -]+\" + unit + r\"(?:ed)?\\s+(?:word|name|term|answer|phrase)\\b\", re.I)\n        for match in pattern.finditer(question):\n            raw = match.group(\"n\").lower()\n            expected = int(raw) if raw.isdigit() else _NUMBERS[raw]\n            observed = sum(char.isalpha() for char in answer) if unit == \"letter\" else len(re.findall(r\"[^\\W_]+(?:['’-][^\\W_]+)*\", answer))\n            constraints.append({\"clue_span\": [match.start(), match.end()], \"clue_text\": match.group(),\n                                \"kind\": unit + \"_count\", \"expected\": expected, \"observed\": observed,\n                                \"literal_match\": expected == observed, \"scope\": \"unverified_may_describe_an_anchor\"})\n            if expected != observed:\n                flags.append({\"kind\": \"possible_\" + unit + \"_count_mismatch\", \"constraint_index\": len(constraints) - 1})\n    occurrences = _occurrences(context, answer, documents)\n    report = {\"answer\": answer, \"answer_exact_occurrences\": occurrences, \"quote_checks\": quote_checks,\n              \"visible_length_constraints\": constraints, \"flags\": flags,\n              \"semantic_status\": \"not_checked\", \"answer_presence_is_required\": False,\n              \"offset_unit\": \"unicode_character_end_exclusive\",\n              \"meaning\": \"Reconsider a specific flagged claim only. Literal presence does not prove the answer; absence can reflect a valid alias. Constraint scope still needs semantic judgment.\"}\n    return {\"status\": \"ok\", \"outputs\": {\"constraint_check\": report}}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quotes": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1200
+            }
+          }
+        },
+        "required": [
+          "question",
+          "context",
+          "answer"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "constraint_check": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "constraint_check"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "intermediate",
+      "permission": "author_trusted",
+      "origin": "human_authored_post_test_development",
+      "method_version": "human.searchqa.target_gepa_20261024"
+    },
+    {
+      "id": "program_hs_searchqa_submit_target_gepa_20261024",
+      "title": "Normalize supported surface encoding and numeric units, then seal one answer with an audit.",
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "source": "\"\"\"Pure answer-surface normalization; no corpus, task IDs, facts or gold lookup.\"\"\"\nimport html\nimport re\nimport unicodedata\n\nONES = dict(zip('zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen'.split(), range(20)))\nTENS = dict(zip('twenty thirty forty fifty sixty seventy eighty ninety'.split(), range(20, 100, 10)))\n\n\ndef small_number(text):\n    parts = text.lower().replace('-', ' ').split()\n    if len(parts) == 1:\n        return ONES.get(parts[0], TENS.get(parts[0]))\n    if len(parts) == 2 and parts[0] in TENS and parts[1] in ONES and 0 < ONES[parts[1]] < 10:\n        return TENS[parts[0]] + ONES[parts[1]]\n    return None\n\n\ndef normalize(answer, question):\n    changes = []\n    body = answer.strip()\n    match = re.fullmatch(r'<answer>(.*?)</answer>', body, re.S)\n    if match:\n        body = match.group(1).strip()\n    if not body or re.search(r'</?answer\\b', body, re.I):\n        raise ValueError('Exactly one nonempty answer is required')\n    decoded = html.unescape(body)\n    if decoded != body:\n        changes.append('html_entities')\n        body = decoded\n    # Typography only: preserve accent letters and all lexical words.\n    plain = body.translate(str.maketrans({'‘': \"'\", '’': \"'\", '“': '\"', '”': '\"', '–': '-', '—': '-'}))\n    if plain != body:\n        changes.append('typographic_punctuation')\n        body = plain\n    ascii_name = unicodedata.normalize('NFC', ''.join(ch for ch in unicodedata.normalize('NFD', body) if not unicodedata.combining(ch)))\n    if ascii_name != body:\n        changes.append('latin_diacritics')\n        body = ascii_name\n    compact = re.sub(r'\\b((?:[A-Z]\\.\\s+)+)(?=[A-Z]\\.)', lambda m: re.sub(r'\\s+', '', m.group(0)), body)\n    if compact != body:\n        changes.append('compact_initials')\n        body = compact\n    quantity = bool(re.search(r'\\b(?:how many|how much|this many|this number|number of|this age|what age|how old|what percent|what percentage|this percent|this percentage)\\b', question, re.I))\n    if quantity:\n        numeric = small_number(body)\n        if numeric is not None:\n            body = str(numeric)\n            changes.append('small_quantity_digits')\n        suffix = None\n        if re.search(r'\\b(?:age|old)\\b', question, re.I):\n            suffix = r'years? old'\n        elif re.search(r'\\b(?:percent|percentage)\\b', question, re.I):\n            suffix = r'(?:percent|per cent|percentage points|%)'\n        if suffix:\n            match = re.fullmatch(r'([+-]?\\d+(?:\\.\\d+)?)\\s*' + suffix, body, re.I)\n            if match:\n                body = match.group(1)\n                changes.append('unit_already_in_question')\n    if not body or re.search(r'</?answer\\b', body, re.I):\n        raise ValueError('Decoded nested/empty answer is not allowed')\n    return body, changes\n\n\ndef run(ctx, inputs):\n    answer, question = inputs.get('answer'), inputs.get('question')\n    if not isinstance(answer, str) or not isinstance(question, str):\n        return {'status': 'needs_input', 'outputs': {}, 'error': 'answer and question strings required'}\n    try:\n        value, changes = normalize(answer, question)\n    except ValueError as error:\n        return {'status': 'needs_input', 'outputs': {}, 'error': str(error)}\n    return {'status': 'ok', 'outputs': {'answer': '<answer>' + value + '</answer>',\n        'surface_audit': {'raw_answer': answer, 'normalized_answer': value, 'changes': changes,\n                          'semantic_validation': False}}}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "question": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "question"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "surface_audit": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "answer",
+          "surface_audit"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "final_answer",
+      "permission": "author_trusted",
+      "origin": "human_authored_post_test_development",
+      "method_version": "human.searchqa.target_gepa_20261024"
+    }
+  ],
+  "implementation": [
+    {
+      "id": "implementation_hs_searchqa_context_index_target_gepa_20261024",
+      "skill_id": "skill_hs_searchqa_context_index_target_gepa_20261024",
+      "program_id": "program_hs_searchqa_context_index_target_gepa_20261024",
+      "origin": "human_authored_post_test_development",
+      "permission": "author_trusted",
+      "method_version": "human.searchqa.target_gepa_20261024"
+    },
+    {
+      "id": "implementation_hs_searchqa_evidence_windows_target_gepa_20261024",
+      "skill_id": "skill_hs_searchqa_evidence_windows_target_gepa_20261024",
+      "program_id": "program_hs_searchqa_evidence_windows_target_gepa_20261024",
+      "origin": "human_authored_post_test_development",
+      "permission": "author_trusted",
+      "method_version": "human.searchqa.target_gepa_20261024"
+    },
+    {
+      "id": "implementation_hs_searchqa_constraint_check_target_gepa_20261024",
+      "skill_id": "skill_hs_searchqa_constraint_check_target_gepa_20261024",
+      "program_id": "program_hs_searchqa_constraint_check_target_gepa_20261024",
+      "origin": "human_authored_post_test_development",
+      "permission": "author_trusted",
+      "method_version": "human.searchqa.target_gepa_20261024"
+    },
+    {
+      "id": "implementation_hs_searchqa_submit_target_gepa_20261024",
+      "skill_id": "skill_hs_searchqa_submit_target_gepa_20261024",
+      "program_id": "program_hs_searchqa_submit_target_gepa_20261024",
+      "origin": "human_authored_post_test_development",
+      "permission": "author_trusted",
+      "method_version": "human.searchqa.target_gepa_20261024"
+    }
+  ],
+  "workflow": [
+    {
+      "id": "workflow_hs_searchqa_supported_answer_target_gepa_20261024",
+      "interface_version": "empirical.workflow.v2",
+      "goal": "Resolve the requested answer from supplied SearchQA evidence and submit its selected wording",
+      "method_version": "human.searchqa.target_gepa_20261024",
+      "origin": "human_authored_post_test_development",
+      "nodes": [
+        {
+          "id": "solve",
+          "execution_mode": "skill",
+          "skill_id": "skill_hs_searchqa_solve_target_gepa_20261024",
+          "reference_skill_ids": [
+            "skill_hs_searchqa_evidence_target_gepa_20261024",
+            "skill_hs_searchqa_surface_target_gepa_20261024"
+          ],
+          "args": {
+            "question": {
+              "task": "goal"
+            },
+            "context": {
+              "task": "context"
+            }
+          },
+          "after": []
+        },
+        {
+          "id": "submit",
+          "execution_mode": "skill",
+          "skill_id": "skill_hs_searchqa_submit_target_gepa_20261024",
+          "args": {
+            "answer": {
+              "from": "solve",
+              "field": "answer"
+            },
+            "question": {
+              "task": "goal"
+            }
+          },
+          "after": [
+            "solve"
+          ]
+        }
+      ],
+      "outputs": {
+        "answer": {
+          "from": "submit",
+          "field": "answer"
+        }
+      }
+    }
+  ]
+}

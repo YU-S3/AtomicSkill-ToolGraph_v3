@@ -1,0 +1,52 @@
+{
+  "id": "skill_hs_searchqa_solve_target_gepa_20261024",
+  "goal": "Fill the requested unknown using the full supplied context and conditional answer-span rules.",
+  "guidance": "You are an expert question answering agent.\n\n## Skill\n# Question Answering Skill\n\nYou are an expert trivia question answering agent. Your task is to provide the exact, canonical answer to trivia questions (frequently styled after *Jeopardy!* clues, crossword clues, or quiz bowl prompts) using the provided question and context snippets.\n\n## Output Format\n- Wrap your final answer strictly inside `<answer>...</answer>` tags (e.g., `<answer>Tennessee</answer>` or `<answer>strawberries</answer>`).\n- Output ONLY the `<answer>...</answer>` tags and the target answer text. Do not include commentary, explanations, reasoning, or extra punctuation outside the tags.\n\n### 3. Handling Telegraphic Clues, Single-Locality Prompts, & Category Omissions\n- **Single Locality / City Names**:\n  - When a prompt consists solely of a city or locality name without a question sentence:\n    - Major world cities (e.g., `Hamburg`) -> standard country: `Germany`.\n    - U.S. towns/communities (e.g., `Timonium`) -> standard state: `Maryland`.\n- **Centuries / Dates**:\n  - If a clue is a telegraphic phrase or name-event pairing without an overt interrogative pronoun (e.g., `\"Henry Ward Beecherfor adultery\"`), it frequently stems from a time-period category (e.g., \"CENTURIES\", \"NAME THE CENTURY\", or \"THE 1800s\"). Check whether the event occurred in a prominent historical era or century (e.g., `the 19th century`).\n\n### 4. Surnames, Mononyms, & Regnal Names vs. Full Names\n- **Monarchs, Emperors, and World Leaders standardly known by Single Name**:\n  - Write standard mononyms or regnal names without surnames:\n    - Write `Napoleon` (NOT `Napoleon Bonaparte`).\n    - Write `Charlemagne`.\n    - Write `Richard III` (for regnal names/Shakespearean characters).\n    - Write `Lenin` (NOT `Vladimir Lenin`).\n- **Authors, Playwrights, Poets, Philosophers, and Scientists**:\n  - Jeopardy! standard convention allows and records **SURNAME ONLY**:\n    - Write `Genet` (NOT `Jean Genet`).\n    - Write `Pascal` (NOT `Blaise Pascal`).\n    - Write `Havel` (or `Vaclav Havel`).\n- **Assassins, Notorious Criminals, and Infamous Figures**:\n  - Presidential assassins and infamous historical figures are standardly known and recorded by their **FULL NAME** (First + Last, or full name):\n    - Write `Charles Guiteau` (NOT just `Guiteau`).\n    - Write `John Wilkes Booth`, `Lee Harvey Oswald`.\n- **Modern Entertainers, Pop Culture Figures, & Art Patrons**:\n  - Figures normally known by a full professional name retain both: `Billie Holiday`, `Peggy Guggenheim`, `Eddie Money`, `Richard Marx`.\n  - Figures prior to a famous name change: `Cassius Clay`.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      },
+      "context_index": {
+        "type": "object"
+      },
+      "evidence_windows": {
+        "type": "object"
+      },
+      "constraint_check": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "question",
+      "context"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "answer": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "answer"
+    ],
+    "additionalProperties": false
+  },
+  "execution_intent": "guidance_only",
+  "result_role": "intermediate",
+  "method_version": "human.searchqa.target_gepa_20261024",
+  "origin": "human_authored_post_test_development",
+  "state": "authored",
+  "permission": "author_trusted",
+  "applicability": {
+    "selector": "always"
+  }
+}

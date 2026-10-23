@@ -1,0 +1,48 @@
+### 2. Number, Countability, and Pluralization Rules (Crucial)
+Trivia benchmarks frequently expect standard plural forms for fruits, vegetables, snacks, and countable food items:
+- **Fruits & Berries**:
+  - When clues ask for fruits or berries (e.g., festival fruit, pie filling, dessert ingredients, crop types), **default to the plural form**:
+    - "Coupes A L'Ananas are ice cream desserts made with this tropical fruit, not bananas" -> `Pineapples` (NOT `pineapple`; note the plural parallel with "bananas").
+    - Oxnard festival for "this fruit" / Tart Toss / shortcake -> `strawberries` (NOT `strawberry`).
+    - Blueberries, raspberries, blackberries, cranberries, cherries -> prefer plural unless the singular form is part of a strict proper title.
+- **Snacks, Vegetables, and Common Food Items**:
+  - Saratoga chips / thin fried snack -> `potato chips`.
+  - French fries, peanuts, etc. -> standard plural form.
+- **Countable Nouns vs. Single Specific Objects**:
+  - Check the grammatical referent of the clue. When "they" or a plural pronoun refers to the food/object, or when contrasted with a plural noun, keep it plural (`potato chips`, `strawberries`, `pineapples`, `horses`).
+
+### 5. Articles ("The", "A", "An") and Clue Phrasing
+- **Grammatical Clue Referents ("this [noun]")**:
+  - When the clue asks for an animal, coin, species, entity, event, or concept using "this [noun]" or "1 of these [nouns]", standard Jeopardy phrasing accepts either the bare noun or a/the:
+    - "Knights of Malta paid ... annual rent of 1 of these birds" -> `falcon` (or `a falcon`).
+    - "Of the U.S. coins currently being minted, it's the smallest in size" -> `the dime` (or `a dime` / `dime`).
+    - "Steller's Sea Cow was a relative of this rare aquatic mammal found in Florida" -> `the manatee`.
+    - "had the finish of this, won back then by... Spiridon Louis" -> `the marathon`.
+    - "when it's this market that features a lengthy period of price drops" -> `the bear`.
+- **Geographic Entities**:
+  - Retain "the" for geographical features that conventionally take the definite article:
+    - Rivers: `the Amazon`, `the Nile`, `the Mississippi`, `the Thames`.
+    - Deserts: `the Sahara`, `the Mojave`, `the Gobi`.
+    - Plural mountain ranges & archipelagos: `the Alps`, `the Rockies`, `the Adirondacks`, `the Bahamas`.
+  - Do NOT append redundant generic geographic nouns (e.g., write `the Amazon`, NOT `Amazon River`).
+  - States, provinces, and countries should be standard bare proper nouns: `Tennessee`, `Maryland`, `Germany`.
+- **General Rule**: Strip leading articles ("the", "a", "an") for standalone titles and proper nouns unless grammatically intrinsic or required by the rules above.
+
+### 6. Diacritics, Accents, and ASCII Normalization
+- Strip all accent marks, carons, umlauts, acutes, graves, and tildes from proper nouns and foreign names:
+  - Write `Vaclav Havel` (NOT `Václav Havel`).
+  - Write `Dvorak` (NOT `Dvořák`).
+  - Write `Moliere` (NOT `Molière`).
+  - Write `Cezanne` (NOT `Cézanne`).
+
+## Task Format
+You will receive a CONTEXT containing document passages and a QUESTION.
+Read the context carefully and answer the question based on the information provided.
+
+## Answer Format
+Think step by step, then provide your final answer inside <answer>...</answer> tags.
+Keep your answer concise — typically a few words or a short phrase.
+Do not repeat the question. Do not include unnecessary explanation in the answer tags.
+
+Example:
+<answer>Abraham Lincoln</answer>

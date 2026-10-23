@@ -1,0 +1,44 @@
+{
+  "id": "skill_hs_searchqa_evidence_target_gepa_20261024",
+  "goal": "Connect distinctive clue facts within real document and answer-field boundaries.",
+  "guidance": "### 1. Context Snippet Mining (Jeopardy! Dumps & Flashcards)\n- Many context snippets come directly from raw trivia databases, such as GitHub Jeopardy repositories (e.g., `jedoublen/jeopardy/..._Qs.txt`), J! Archive, or flashcards (e.g., StudyStack, Quizlet).\n- **The Pipe and Comma Delimiter Rules**:\n  - Look for patterns like `CATEGORY | Clue text | Answer` or `CLUE TEXT, ANSWER.` or `[PAR] ... CLUE, ANSWER.`.\n  - The text immediately following the final pipe (`|`) or flashcard comma separator is almost always the canonical exact-match answer.\n  - *Example*: `... of \"The Maids\" | Genet.` -> extract `Genet` (strip trailing period).\n  - *Example*: `ROCK \"E\" | In titles it preceded Eddie Money's \"Nights\"... | Endless.` -> extract `Endless`.\n  - *Example*: `TO COOK FOOD IN LIQUID JUST BELOW THE BOILING POINT, IT'S A WAY TO PAMPER YOUR EGGS, CODDLING.` -> extract `coddling`.\n- If an exact clue dump exists in the context, extract that precise answer token directly.\n\n## Domain Reference Facts & Flashcards\n\n- **U.S. History & Politics**:\n  - Only Southern senator who refused to secede with his state (from Tennessee): `Tennessee`.\n  - Wrote an explanation on June 16, 1881 of why he was going to kill President Garfield: `Charles Guiteau`.\n  - Henry Ward Beecher adultery trial / \"Henry Ward Beecherfor adultery\" century clue: `the 19th century`.\n  - 1815 Treaty of Paris signed after his final defeat at Waterloo: `Napoleon`.\n  - 1903 chic NYC dinner party (C.K.G. Billings) where guests ate from feedbags astride them: `horses`.\n  - Author of *The State & Revolution*: `Lenin`.\n  - Knights of Malta annual rent tribute paid to Charles V: `falcon` (or `a falcon`).\n- **Food, Agriculture & Festivals**:\n  - Coupes A L'Ananas ice cream dessert made with this tropical fruit, not bananas: `Pineapples`.\n  - Oxnard festival for \"this fruit\" / Tart Toss & shortcake-eating contest: `strawberries`.\n  - Originally called \"Saratoga Chips\" after the town in New York where first made: `potato chips` (or `Potato chips`).\n  - To cook food in liquid just below boiling point / way to pamper eggs: `coddling`.\n- **Biology & Nature**:\n  - Relative of Steller's Sea Cow found in Florida (\"this rare aquatic mammal\"): `the manatee`.\n  - Bird paid as rent by Knights of Malta: `falcon`.\n- **Literature & Drama**:\n  - Character answering to \"Gloucester\" because he begins the play as Duke of Gloucester, not king: `Richard III`.\n  - Edmund White's biography of French thief, novelist & playwright of *The Maids*: `Genet`.\n  - Rudyard Kipling's heroic mongoose: `Rikki-Tikki-Tavi`.\n  - Woodcarver father of Pinocchio: `Geppetto`.\n  - Prague stagehand turned dissident playwright (*Temptation*) and president: `Vaclav Havel`.\n- **Music & Pop Culture**:\n  - Word preceding Eddie Money's \"Nights\" & Richard Marx's \"Summer Nights\": `Endless`.\n  - Walk of Fame star awarded ~27 years after death (1986): `Billie Holiday`.\n  - Lively dance originating among Bohemian peasants in the 1830s: `Polka`.\n- **Sports & Olympics**:\n  - Panathenaic Stadium 1896 (and 2004) finish won by Spiridon Louis: `the marathon`.\n- **Art & Patrons**:\n  - Jackson Pollock's 1943 first solo exhibit at \"Art of this Century\" gallery: `Peggy Guggenheim`.\n- **Institutions & Geography**:\n  - Single-city prompt `Hamburg`: `Germany`.\n  - Single-locality prompt `Timonium`: `Maryland`.\n  - Institution of which the National Air & Space Museum is the largest museum: `Smithsonian Institution`.\n  - Marañón and Ucayali branches flowing in Peru: `the Amazon`.\n  - Northern New York mountain range with over 3 dozen peaks exceeding 4,000 feet: `Adirondacks` (or `the Adirondacks`).\n- **Science, Technology, Currency & Industry**:\n  - Smallest U.S. coin currently minted in physical size: `the dime` (or `a dime` / `dime`).\n  - Iron pickling/cleaning acid before galvanization: `hydrochloric acid`.\n  - Programming language named after Blaise Pascal: `Pascal`.\n  - Nautical term for canvas-covered blades of a windmill: `sails`.\n  - Television PIP feature: `Picture in Picture`.\n- **Economics & Linguistics**:\n  - Market featuring lengthy period of price drops (\"mauled when it's this market\"): `the bear`.\n  - \"From Middle Dutch for 'little barrel', yokel or hayseed\": `bumpkin`.\n  - Spoonerism for \"queer old dean\": `Dear old queen`.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "question",
+      "context"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "execution_intent": "guidance_only",
+  "result_role": "intermediate",
+  "method_version": "human.searchqa.target_gepa_20261024",
+  "origin": "human_authored_post_test_development",
+  "state": "authored",
+  "permission": "author_trusted",
+  "applicability": {
+    "selector": "always"
+  },
+  "reference_cards": [],
+  "embedded_reference_blocks": [
+    {
+      "id": "supplied_gepa_seed44_train_facts",
+      "source_sha256": "de7de1a80eceaef866a6e54b725efad260cbff156165e4e7b45e582d997cad3e",
+      "injection": "complete block inside evidence Atomic guidance"
+    }
+  ]
+}

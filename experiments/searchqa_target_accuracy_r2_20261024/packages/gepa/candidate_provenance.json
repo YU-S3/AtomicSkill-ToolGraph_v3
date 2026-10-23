@@ -1,0 +1,17 @@
+{
+  "version": "human.searchqa.target_gepa_20261024",
+  "source_prompt_sha256": "ac22f336074f642c7f544c5458bcce6b3c0fa1bd9091d0131ecf71ad23ea5e3d",
+  "source_file_sha256": "de7de1a80eceaef866a6e54b725efad260cbff156165e4e7b45e582d997cad3e",
+  "normal_model_calls": 1,
+  "raw_policy_sections_preserved": true,
+  "author_trusted_not_learned": true,
+  "post_test_development": true,
+  "test_gold_runtime_input": false,
+  "counts": {
+    "skill": 7,
+    "program": 4,
+    "implementation": 4,
+    "workflow": 1
+  },
+  "purpose": "Test substantive full reference strategy transfer; avoid a sparse-card comparison with otherwise identical prompts."
+}
