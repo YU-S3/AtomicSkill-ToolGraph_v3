@@ -486,7 +486,7 @@ class OpenAICompatibleProvider:
                 )
                 if self.config.stream and response.ok:
                     try:
-                        stream_data = self._read_stream(response)
+                        stream_data = self._read_stream(response, diagnostic_secrets=diagnostic_secrets)
                     finally:
                         response.close()
             except Exception as exc:  # noqa: BLE001
@@ -610,7 +610,7 @@ class OpenAICompatibleProvider:
             )
             return turn
 
-    def _read_stream(self, response):
+    def _read_stream(self, response, *, diagnostic_secrets=()):
         """Reassemble Chat SSE without losing reasoning, tool arguments or final usage."""
         from pathlib import Path
         from ..empirical.checkpoint import save_json
@@ -635,7 +635,19 @@ class OpenAICompatibleProvider:
                 raw=line[5:].strip()
                 if raw==b'[DONE]':done=True;break
                 chunk=json.loads(raw)
-                if not isinstance(chunk,dict) or 'error' in chunk:raise ValueError('Invalid provider SSE event')
+                if isinstance(chunk,dict) and 'error' in chunk:
+                    error=chunk['error']
+                    detail=error if isinstance(error,dict) else {'message':str(error)}
+                    self._request_context.response_diagnostic.update(
+                        stream_error_event=True,
+                        error={key:_sanitize(str(detail[key]),secrets=diagnostic_secrets)
+                               for key in ('code','type','message','status','status_code') if key in detail},
+                        error_event_sha256=hashlib.sha256(raw).hexdigest())
+                    if chunk.get('usage') is not None:
+                        data['usage']=chunk['usage']
+                        self._request_context.raw_usage=copy.deepcopy(chunk['usage'])
+                    raise ValueError('Provider SSE error event')
+                if not isinstance(chunk,dict):raise ValueError('Invalid provider SSE event')
                 count+=1;size+=len(raw);checksum.update(raw+b'\n')
                 if size>64*1024*1024:raise ValueError('Provider SSE envelope exceeds 64 MiB')
                 if journal:journal.write(raw.decode('utf-8')+'\n')

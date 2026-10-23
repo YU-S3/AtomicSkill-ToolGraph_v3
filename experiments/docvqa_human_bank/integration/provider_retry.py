@@ -28,12 +28,25 @@ def validate_policy(policy):
 
 
 def transient(attempt, error):
-    detail = (attempt.get('response_diagnostic') or {}).get('error') or {}
+    diagnostic = attempt.get('response_diagnostic') or {}
+    detail = diagnostic.get('error') or {}
     codes = ' '.join(str(detail.get(k, '')) for k in ('code', 'type', 'message')).lower()
-    if any(x in codes for x in ('quota', 'balance', 'authentication', 'permission', 'insufficient')):
+    if any(x in codes for x in ('quota', 'balance', 'authentication', 'permission', 'insufficient',
+                                'invalid', 'unsupported', 'not_found', 'bad_request', 'content_filter', 'safety')):
+        return False
+    statuses = {str(detail.get(k, '')) for k in ('code', 'status', 'status_code')}
+    if statuses & {'400','401','403','404','422'}:
         return False
     if attempt.get('http_status') in STATUSES:
         return True
+    # Only unfinished transport envelopes qualify, never malformed model answers,
+    # changed response identities or a completed response's score.
+    stream = diagnostic.get('stream') or {}
+    if attempt.get('error_code') == 'provider_invalid_response' and stream and not stream.get('completed'):
+        cause = str(error.__cause__) if error.__cause__ else attempt.get('sanitized_error', '')
+        if diagnostic.get('stream_error_event') or any(cause.endswith(x) for x in (
+                'Invalid provider SSE event', 'Incomplete provider SSE termination', 'Invalid SSE data line')):
+            return True
     return (attempt.get('http_status') is None and
         isinstance(error.__cause__, (requests.exceptions.Timeout, requests.exceptions.ConnectionError,
                                     requests.exceptions.ChunkedEncodingError)) and
