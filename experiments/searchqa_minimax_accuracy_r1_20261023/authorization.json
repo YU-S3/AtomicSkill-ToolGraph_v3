@@ -1,0 +1,11 @@
+{
+  "status": "approved",
+  "user": "User requested MiniMax accuracy optimization, including specific skills and sourced fact cards; earlier paid Bank iteration authorization remains in effect. This comparison uses only the existing MiniMax cumulative allowance.",
+  "at": "2026-10-23T09:22:51.155106+00:00",
+  "scope": "One paired128 campaign; no new full Test or increase of prior 8M cumulative token cap",
+  "limits": {
+    "token_limit": 8000000,
+    "request_limit": 2142,
+    "finish_reserve": 0
+  }
+}

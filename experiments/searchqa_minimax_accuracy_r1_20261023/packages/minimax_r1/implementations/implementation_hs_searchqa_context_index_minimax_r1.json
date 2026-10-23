@@ -1,0 +1,8 @@
+{
+  "id": "implementation_hs_searchqa_context_index_minimax_r1",
+  "skill_id": "skill_hs_searchqa_context_index_minimax_r1",
+  "program_id": "program_hs_searchqa_context_index_minimax_r1",
+  "origin": "human_authored_post_test_development",
+  "permission": "author_trusted",
+  "method_version": "human.searchqa.minimax.r1.20261023"
+}

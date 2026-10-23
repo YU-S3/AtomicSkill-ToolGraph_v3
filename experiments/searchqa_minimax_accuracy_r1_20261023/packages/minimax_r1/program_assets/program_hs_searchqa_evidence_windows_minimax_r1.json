@@ -1,0 +1,59 @@
+{
+  "id": "program_hs_searchqa_evidence_windows_minimax_r1",
+  "title": "Locate exact source windows and explicitly delimited matching trivia fields for semantic review.",
+  "entry": "run",
+  "backend": "sandbox_python_v1",
+  "source": "\"\"\"Return exact bounded source windows and conservatively detected explicit QA fields.\n\nLexical ranking is navigation, not an answer selector. No network, labels or lookup table.\n\"\"\"\nimport math\nimport re\n\n_STOP = set(\"a an the of in on at to for from and or by with is was are were be been this that these those it its as who what which when where how his her their has have had not one named called\".split())\n\n\ndef _tokens(value):\n    return {word.casefold() for word in re.findall(r\"[^\\W_]+\", value) if len(word) > 1 and word.casefold() not in _STOP}\n\n\ndef _norm(value):\n    return \" \".join(re.findall(r\"[^\\W_]+\", value.casefold()))\n\n\ndef _documents(text):\n    starts = [match.start() for match in re.finditer(r\"\\[DOC\\]\", text)]\n    if not starts:\n        starts = [0]\n    elif text[:starts[0]].strip():\n        starts.insert(0, 0)\n    records = []\n    for number, start in enumerate(starts):\n        end = starts[number + 1] if number + 1 < len(starts) else len(text)\n        raw = text[start:end]\n        title_marker, paragraph_marker = raw.find(\"[TLE]\"), raw.find(\"[PAR]\")\n        title_start = start + title_marker + 5 if title_marker >= 0 else start\n        title_end = start + paragraph_marker if paragraph_marker >= 0 else end\n        if title_marker < 0 or title_end < title_start:\n            title_start = title_end = start\n        while title_start < title_end and text[title_start].isspace():\n            title_start += 1\n        while title_end > title_start and text[title_end - 1].isspace():\n            title_end -= 1\n        body_start = start + paragraph_marker + 5 if paragraph_marker >= 0 else start\n        while body_start < end and text[body_start].isspace():\n            body_start += 1\n        records.append({\"doc_id\": number, \"start\": start, \"end\": end,\n                        \"title_start\": title_start, \"title_end\": title_end, \"body_start\": body_start})\n    return records\n\n\ndef _explicit_fields(text, question, documents):\n    fields, target = [], _norm(question)\n    if not target:\n        return fields\n    labelled = re.compile(r\"(?:^|\\n)[ \\t]*(?:Q(?:uestion)?|Clue)[ \\t]*:[ \\t]*(?P<q>[^\\n]+?)\"\n                          r\"(?:[ \\t]+|\\n[ \\t]*)(?:A(?:nswer)?)[ \\t]*:[ \\t]*(?P<a>[^\\n]+)\", re.I)\n    for doc in documents:\n        body = text[doc[\"body_start\"]:doc[\"end\"]]\n        matches = []\n        for match in labelled.finditer(body):\n            matches.append((match.group(\"q\"), match.span(\"q\"), match.group(\"a\"), match.span(\"a\"), \"explicit_Q_A_labels\"))\n        cursor = 0\n        for line in body.splitlines(keepends=True):\n            cells = list(re.finditer(r\"[^|\\t\\r\\n]+\", line))\n            if \"|\" in line or \"\\t\" in line:\n                for left, right in zip(cells, cells[1:]):\n                    matches.append((left.group(), (cursor + left.start(), cursor + left.end()),\n                                    right.group(), (cursor + right.start(), cursor + right.end()), \"explicit_pipe_or_tab_fields\"))\n            cursor += len(line)\n        for clue, clue_span, answer, answer_span, form in matches:\n            if _norm(clue) != target or not answer.strip() or len(answer.strip()) > 256:\n                continue\n            left = len(answer) - len(answer.lstrip())\n            right = len(answer.rstrip())\n            start, end = doc[\"body_start\"] + answer_span[0] + left, doc[\"body_start\"] + answer_span[0] + right\n            if any(field[\"answer_span\"] == [start, end] for field in fields):\n                continue\n            fields.append({\"doc_id\": doc[\"doc_id\"], \"candidate\": text[start:end], \"answer_span\": [start, end],\n                           \"clue_span\": [doc[\"body_start\"] + clue_span[0], doc[\"body_start\"] + clue_span[1]],\n                           \"boundary_evidence\": form, \"clue_match\": \"all_normalized_words_in_order\",\n                           \"semantic_status\": \"unverified; check requested type, relation, and answer form\"})\n    return fields\n\n\ndef run(ctx, inputs):\n    question, context = inputs.get(\"question\"), inputs.get(\"context\")\n    query, top_k = inputs.get(\"query\", question), inputs.get(\"top_k\", 4)\n    if not isinstance(question, str) or not isinstance(context, str) or not isinstance(query, str):\n        return {\"status\": \"needs_input\", \"outputs\": {}, \"error\": \"question, context and query must be strings\"}\n    if isinstance(top_k, bool) or not isinstance(top_k, int) or not 1 <= top_k <= 6:\n        return {\"status\": \"needs_input\", \"outputs\": {}, \"error\": \"top_k must be an integer from 1 to 6\"}\n    documents, terms = _documents(context), _tokens(query)\n    doc_terms = [_tokens(context[doc[\"start\"]:doc[\"end\"]]) for doc in documents]\n    weights = {term: math.log(1 + (len(documents) + 1) / (1 + sum(term in group for group in doc_terms))) for term in terms}\n    candidates = []\n    for doc in documents:\n        title = context[doc[\"title_start\"]:doc[\"title_end\"]]\n        title_hits = terms & _tokens(title)\n        body_start, end = doc[\"body_start\"], doc[\"end\"]\n        starts = list(range(body_start, max(body_start + 1, end), 320))\n        for start in starts:\n            stop = min(end, start + 560)\n            quote = context[start:stop]\n            hits = terms & _tokens(quote)\n            score = sum(weights[term] for term in hits) + 0.35 * sum(weights[term] for term in title_hits)\n            candidates.append({\"doc_id\": doc[\"doc_id\"], \"span\": [start, stop], \"quote\": quote,\n                               \"title\": title, \"title_span\": [doc[\"title_start\"], doc[\"title_end\"]],\n                               \"matched_terms\": sorted(hits | title_hits), \"lexical_score\": round(score, 6)})\n    candidates.sort(key=lambda item: (-item[\"lexical_score\"], item[\"doc_id\"], item[\"span\"][0]))\n    windows, seen, per_doc = [], set(), {}\n    for candidate in candidates:\n        key = \" \".join(candidate[\"quote\"].casefold().split())\n        if not key or key in seen or per_doc.get(candidate[\"doc_id\"], 0) >= 2:\n            continue\n        seen.add(key)\n        per_doc[candidate[\"doc_id\"]] = per_doc.get(candidate[\"doc_id\"], 0) + 1\n        windows.append(candidate)\n        if len(windows) >= top_k:\n            break\n    fields = _explicit_fields(context, question, documents)\n    report = {\"query\": query, \"windows\": windows, \"explicit_qa_fields\": fields[:6],\n              \"omitted_qa_fields\": max(0, len(fields) - 6), \"source_document_count\": len(documents),\n              \"offset_unit\": \"unicode_character_end_exclusive\", \"searched_source\": \"only_supplied_context\",\n              \"meaning\": \"Lexical navigation and explicit field boundaries, not semantic proof, gold prediction, or a calibrated confidence score.\"}\n    return {\"status\": \"ok\", \"outputs\": {\"evidence_windows\": report}}\n",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      },
+      "query": {
+        "type": "string"
+      },
+      "top_k": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 6
+      }
+    },
+    "required": [
+      "question",
+      "context"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "evidence_windows": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "evidence_windows"
+    ],
+    "additionalProperties": false
+  },
+  "allowed_tools": [],
+  "environment": {
+    "backend": "sandbox_python_v1",
+    "python": "3.12",
+    "dependencies": [
+      "openpyxl==3.1.5",
+      "pandas==2.3.3",
+      "pillow==11.3.0"
+    ],
+    "adapter_abi": "simple.v2",
+    "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+  },
+  "result_role": "intermediate",
+  "permission": "author_trusted",
+  "origin": "human_authored_post_test_development",
+  "method_version": "human.searchqa.minimax.r1.20261023"
+}

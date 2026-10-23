@@ -1,0 +1,65 @@
+{
+  "id": "program_hs_searchqa_constraint_check_minimax_r1",
+  "title": "Verify exact quotes and flag visible word or letter constraints without grading semantic correctness.",
+  "entry": "run",
+  "backend": "sandbox_python_v1",
+  "source": "\"\"\"Check exact source quotes and visible textual constraints without semantic grading.\"\"\"\nimport re\n\n_NUMBERS = {name: value for value, name in enumerate(\"zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty\".split())}\n_NUMBER = r\"(?:[1-9][0-9]?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\"\n\n\ndef _documents(text):\n    starts = [match.start() for match in re.finditer(r\"\\[DOC\\]\", text)]\n    if not starts:\n        starts = [0]\n    elif text[:starts[0]].strip():\n        starts.insert(0, 0)\n    return [(start, starts[i + 1] if i + 1 < len(starts) else len(text)) for i, start in enumerate(starts)]\n\n\ndef _occurrences(text, value, documents):\n    if not value:\n        return []\n    result = []\n    for match in re.finditer(re.escape(value), text):\n        number = next((i for i, (start, end) in enumerate(documents) if start <= match.start() and match.end() <= end), None)\n        result.append({\"span\": [match.start(), match.end()], \"doc_id\": number, \"within_single_doc\": number is not None})\n        if len(result) >= 12:\n            break\n    return result\n\n\ndef run(ctx, inputs):\n    question, context, answer = inputs.get(\"question\"), inputs.get(\"context\"), inputs.get(\"answer\")\n    quotes = inputs.get(\"quotes\", [])\n    if not all(isinstance(value, str) for value in (question, context, answer)) or not answer.strip():\n        return {\"status\": \"needs_input\", \"outputs\": {}, \"error\": \"question/context strings and a nonempty answer are required\"}\n    if not isinstance(quotes, list) or len(quotes) > 8 or any(not isinstance(quote, str) or not quote or len(quote) > 1200 for quote in quotes):\n        return {\"status\": \"needs_input\", \"outputs\": {}, \"error\": \"quotes must contain at most 8 nonempty strings of at most 1200 characters\"}\n    documents, quote_checks, flags = _documents(context), [], []\n    for quote in quotes:\n        matches = _occurrences(context, quote, documents)\n        status = \"exact_single_doc\" if any(item[\"within_single_doc\"] for item in matches) else \"cross_document\" if matches else \"not_found\"\n        quote_checks.append({\"quote\": quote, \"status\": status, \"occurrences\": matches})\n        if status != \"exact_single_doc\":\n            flags.append({\"kind\": \"quote_\" + status, \"quote_index\": len(quote_checks) - 1})\n    constraints = []\n    for unit in (\"letter\", \"word\"):\n        pattern = re.compile(r\"\\b(?P<n>\" + _NUMBER + r\")[ -]+\" + unit + r\"(?:ed)?\\s+(?:word|name|term|answer|phrase)\\b\", re.I)\n        for match in pattern.finditer(question):\n            raw = match.group(\"n\").lower()\n            expected = int(raw) if raw.isdigit() else _NUMBERS[raw]\n            observed = sum(char.isalpha() for char in answer) if unit == \"letter\" else len(re.findall(r\"[^\\W_]+(?:['’-][^\\W_]+)*\", answer))\n            constraints.append({\"clue_span\": [match.start(), match.end()], \"clue_text\": match.group(),\n                                \"kind\": unit + \"_count\", \"expected\": expected, \"observed\": observed,\n                                \"literal_match\": expected == observed, \"scope\": \"unverified_may_describe_an_anchor\"})\n            if expected != observed:\n                flags.append({\"kind\": \"possible_\" + unit + \"_count_mismatch\", \"constraint_index\": len(constraints) - 1})\n    occurrences = _occurrences(context, answer, documents)\n    report = {\"answer\": answer, \"answer_exact_occurrences\": occurrences, \"quote_checks\": quote_checks,\n              \"visible_length_constraints\": constraints, \"flags\": flags,\n              \"semantic_status\": \"not_checked\", \"answer_presence_is_required\": False,\n              \"offset_unit\": \"unicode_character_end_exclusive\",\n              \"meaning\": \"Reconsider a specific flagged claim only. Literal presence does not prove the answer; absence can reflect a valid alias. Constraint scope still needs semantic judgment.\"}\n    return {\"status\": \"ok\", \"outputs\": {\"constraint_check\": report}}\n",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "context": {
+        "type": "string"
+      },
+      "answer": {
+        "type": "string",
+        "minLength": 1
+      },
+      "quotes": {
+        "type": "array",
+        "maxItems": 8,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1200
+        }
+      }
+    },
+    "required": [
+      "question",
+      "context",
+      "answer"
+    ],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "constraint_check": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "constraint_check"
+    ],
+    "additionalProperties": false
+  },
+  "allowed_tools": [],
+  "environment": {
+    "backend": "sandbox_python_v1",
+    "python": "3.12",
+    "dependencies": [
+      "openpyxl==3.1.5",
+      "pandas==2.3.3",
+      "pillow==11.3.0"
+    ],
+    "adapter_abi": "simple.v2",
+    "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+  },
+  "result_role": "intermediate",
+  "permission": "author_trusted",
+  "origin": "human_authored_post_test_development",
+  "method_version": "human.searchqa.minimax.r1.20261023"
+}

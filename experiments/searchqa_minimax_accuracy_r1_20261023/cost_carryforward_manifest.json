@@ -1,0 +1,10 @@
+{
+  "parent": "/home/yangchengyu/searchqa_v7_minimax_docker_replacement_20261023",
+  "parent_budget_sha256": "80d21d234114be751a8c2915bb2aeb897f84067a4baff9f2b02dd76fb5e4ecf8",
+  "prior_searchqa_tokens": 6494941,
+  "prior_searchqa_http": 1842,
+  "unknown_reserved_tokens": 154912,
+  "token_headroom_at_start": 1350147,
+  "old_excluded_200_effective_cost_stays_excluded": true,
+  "physical_ledger_entries_preserved": true
+}
