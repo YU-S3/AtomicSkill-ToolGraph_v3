@@ -1,0 +1,134 @@
+{
+  "code": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "created_at": "2026-10-23T06:47:24.723607+00:00",
+  "tasks": 1400,
+  "arms": {
+    "v7_text_compiler": {
+      "package": "/home/yangchengyu/searchqa_v2_v7_fulltest1400_seed42_20261020/fulltest1400/v7_text_compiler/input",
+      "kind": "native",
+      "frozen_source": "/home/yangchengyu/searchqa_v2_v7_fulltest1400_seed42_20261020/fulltest1400/v7_text_compiler/frozen_bank"
+    }
+  },
+  "input_identity": {
+    "v7_text_compiler": {
+      "sha256": "18316105ad5aa8c2fb3e4ea7f77c8326ca3c8bb8e61073760b1c88d940592518",
+      "files_sha256": {
+        "FILE_SHA256.json": "21de23c63ac06022f79b97de136560b04c3513b6499230442a45b9a5e0bca554",
+        "INTEGRATION_CONTRACT.md": "f82bbbf11c77e0e55cc0d1947371fef6ccfa978316b93532815bd4e92b105db3",
+        "README.md": "c5db87c21cc0f5e8116385ecddd0737d945fdf95186dec51af21cbfdb18a278a",
+        "RESEARCH_AND_DECISIONS.md": "ec251cda4fd91ac1541910b4c72d2372506c48d488e50fb37c2f1cc360411515",
+        "THIRD_PARTY_NOTICES.md": "ba57f6d61b6f235dec4f181778d6cbaeebf1ac7caf8bd3ff604cb0b2972a4e82",
+        "bank/bank.json": "7905f4c11e61b858fd390dd338b06e2f8183a89bc27d262efdbff27bd9cf7d4c",
+        "bank/manual_manifest.json": "e7c2ab679786b41856497016bffb49426a3b3db09f9b8079c6ce693acbe67c5b",
+        "build_bank.py": "ec401df5da2e509774d89132658ac3b08cea325a920ee9a7ba2ebbfe4826654a",
+        "candidate_provenance.json": "b3a410502dcca5a4e63e828d099f213a849a3a9bbb3fd22c7f5d28654e6151fa",
+        "diagnostic_provenance.json": "ea9ad82db60603771a2e988df39867e53242b14a9c2cee6e9deedebb16d71ff1",
+        "environment.lock.json": "1158db4439d46c70ce46f8e9bdc800fb66a16ea56ff9ddc49a150723d00e3281",
+        "guidance/evidence.txt": "b160a7baaa2984d2c8af55b7fbce7a60199e79a96913e6c5329b3856d567908e",
+        "guidance/solve.txt": "669266659379fe8fe81d30b9af20a588cab0e29d9e31445ab63b48c266fc01b3",
+        "guidance/surface.txt": "01c5376c3a0a71233221535cf14bfd29654f83405d96e7bc31ba73b66f0ff116",
+        "implementations/implementation_hs_searchqa_constraint_check_v7_text_compiler.json": "a0a73602a13815c3f14432d3d70897dfd85bf8584cfcf8e63810caafca4a5a25",
+        "implementations/implementation_hs_searchqa_context_index_v7_text_compiler.json": "950be2ef06e8ef55987636d1b75132cf68a2dcc3395869f36d23a20e84122092",
+        "implementations/implementation_hs_searchqa_evidence_windows_v7_text_compiler.json": "4fc849941d2d89f92e3cbbd9db502cf441ebc9a0e99f7be0268a8269dc861d35",
+        "implementations/implementation_hs_searchqa_submit_v7_text_compiler.json": "9a2023ce78560340afdd399e61192d7dff51d93c02aa8e83ae435d91d65b729c",
+        "import_bank.py": "32732c78c0c87288bb42c82777c50e6ee0be01313965ee83aa513962b2e06fa9",
+        "integration.py": "05f230619072b087980ce0a8837b4633236f506ad5060bc29f513d6777edfd37",
+        "licenses/SkillOpt_MIT.txt": "9515a04280cf50ce154eb3ab8fa375c7cc5e6b45ea5cb23b7ff3830737020c15",
+        "program_assets/program_hs_searchqa_constraint_check_v7_text_compiler.json": "5b1d3c76f8b2868a6af3921bd334261f47a47d35ebf9b0714e0bb4b91fa71606",
+        "program_assets/program_hs_searchqa_context_index_v7_text_compiler.json": "bffc4e861f31d3b12ff0b63c026090bb67f180ca975546ad5ef2cd63fc0b5f67",
+        "program_assets/program_hs_searchqa_evidence_windows_v7_text_compiler.json": "4ba7f08e7f71eeaddd9f77ecb68c0cd80833fc3373793d2a4f4c0ddc4324e37c",
+        "program_assets/program_hs_searchqa_submit_v7_text_compiler.json": "494319a063b8618f98e923e1ede627f6bf1d03155487b031870ca99bf3993f8e",
+        "programs/constraint_check.py": "ba862233db53c675b517ad965aebbb23f5f5861ca357bc54f1153d356b87f485",
+        "programs/context_index.py": "99d776dee48a24c7a406b5d567efdc3bbd71d715a68c1e082b14bffd2f525526",
+        "programs/evidence_windows.py": "92a92bfab263013ece65e2e6abe162631b7bf2d0c456649962f91888f387f8aa",
+        "programs/submit.py": "f70422057e373999f084b1254e810a42c23678a9230ef44b4d3a8bbf171ff074",
+        "run_bank.py": "6b77f698258d1565d36874073ce35cbae50b59c5c625cc408194807822f9b284",
+        "skills/skill_hs_searchqa_constraint_check_v7_text_compiler.json": "97819712f1d33ef1a2b8c6c22ce2bb069fd02f2cb2d37bf534786a950b15b0ee",
+        "skills/skill_hs_searchqa_context_index_v7_text_compiler.json": "e2ef5398bb0d41e4302e1ec9683e26a2f7c169cdd3f28f08757e341e5575761e",
+        "skills/skill_hs_searchqa_evidence_v7_text_compiler.json": "f4147ac6b78b9316ed7b3cc8706e23ea4f1c30f0ab437bf7a7d75ac484e3d88d",
+        "skills/skill_hs_searchqa_evidence_windows_v7_text_compiler.json": "34ef45a41cc20d0ebc6a37b264554c27ffd4d6261dd1f662ae8addd827b61921",
+        "skills/skill_hs_searchqa_solve_v7_text_compiler.json": "649f617a779e6e41b8754daa32e996407413970fb14f177ec3748673636dcb59",
+        "skills/skill_hs_searchqa_submit_v7_text_compiler.json": "79c47e9be2d260fd6c3cb3a6aedce9515c0559f5f97d315f4420f07b4908ec89",
+        "skills/skill_hs_searchqa_surface_v7_text_compiler.json": "61e1dfce3a055648e1a0bf82d82fb7fb5661f3b06a2d346b7b16046a87f299f3",
+        "workflows/workflow_hs_searchqa_supported_answer_v7_text_compiler.json": "277905d146ada9287cf6d26ca43f1fd0540adf000d10eda3d7179d13d7d0030d"
+      },
+      "size_bytes": 169564
+    }
+  },
+  "frozen": {
+    "v7_text_compiler": {
+      "sha256": "f0123c255607d5333a5e38ead7b0db3c4efbe89a965d47347566cbeb8fb38c27",
+      "files_sha256": {
+        "bank.sqlite3": "9a81624e0f2a3e459e2ee915ae3b220239654f2b4c28ee7cc1a4d11b47666810",
+        "imported_bank.json": "da009b600a3df269d6a39b301425f7a8e8fe19f975092bc9255775b72d04aa91",
+        "manual_manifest.json": "4bf5f2807791d50b37b0c065a146f38878e18d56b40a529e7b7a1d26d3097ccd"
+      },
+      "size_bytes": 135166
+    }
+  },
+  "files": {
+    "/home/yangchengyu/searchqa_v7_gemini38_test1400_seed42_20261023/fulltest1400/tasks.json": "3c50bbaee421a8a5ac80dcdb551a7606267b945890e5d9cc6bddbb4b66bc783f",
+    "/home/yangchengyu/searchqa_v7_gemini38_test1400_seed42_20261023/fulltest1400/schedule.json": "6c03f1072f593464d13e410120480c2bda1926f54fc98da3291605e8dadb19d6",
+    "/home/yangchengyu/searchqa_v7_gemini38_test1400_seed42_20261023/fulltest1400/budget_at_start.json": "1119b8f35af537119f735d550426b7b10c83c1b2a97e254b247d440bc7444bac",
+    "/home/yangchengyu/searchqa_v7_gemini38_test1400_seed42_20261023/fulltest1400/v7_text_compiler/config.json": "bd2d386e4ab3752e11bfd9d7ed0df8587f4c2e6e5eafca3a490662a18d8a2540",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_gemini38_test1400_20261023/campaign.py": "391d26685703c3824c5599d174908181933030f3bab38080a78630e3b6e6e86a",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_gemini38_test1400_20261023/runtime.py": "054ba5cbfab090645437242122d1f480fd7ef43879baa413431a603fe784c3d1",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_gemini38_test1400_20261023/spec.json": "3c0e3c7b173c2a1b6c900c5a6994bc90e6a0dde38705c5d997d17bf8ff8ac0d8",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_gemini38_test1400_20261023/campaign_plan.json": "b784f2aa5797df782cb52516350b44bd9c0454b34e359f390a46705926216626",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_gemini38_test1400_20261023/provider_outcomes.py": "24eed8578ce328ea4802dbff1e3d1f2681b603b449a0edf44fa86fc35240a225",
+    "/home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1/searchqa/evaluator_records_test.json": "93b43f777ba6f793f58efbb1cb9d04444784ccb85f42f3051cc0c60f95a0f252",
+    "/home/yangchengyu/searchqa_v7_gemini38_test1400_seed42_20261023/authorization.json": "c4328df6d239ec4e9db821c32c264da5c2fce4ad433c21baaa49c7e1afa67b7a",
+    "/home/yangchengyu/searchqa_v7_gemini38_test1400_seed42_20261023/cost_carryforward_manifest.json": "afec3c50df87bfed44d89949fba90d2ebdf1b4ea895a1ae3f135f8f248851b63",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_gemini38_test1400_20261023/run_gemini.py": "414c6f259f32434ca8c96c7ad22f96c67b8e6e875e2e5c96536e81e13cf19584",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_gemini38_test1400_20261023/check_gemini.py": "546b9bfe3a8bc711485a6542769d2d20253f76a08d2094a84efac467b7c316d4",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_gemini38_test1400_20261023/offline_acceptance.json": "0420e1f86843929414579153879583c251f62a5252b8ecc66ec182d48f44a2db",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_gemini38_test1400_20261023/infrastructure_guard.py": "39a6e36463d6dad832bbe5c9a5c6c43429934d0d3c321d50bb225bf6b644cd3a",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_gemini38_test1400_20261023/base_config.json": "25a053f047b4d7ef9e3387cbc4cf1a80c16eb7795adeafb21a2f207febdf0f23",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_gemini38_test1400_20261023/source_provenance.json": "89b5fd47e190bfd810c342b46e3598837474f3c6a54cf3ee84bbb84ace99095e",
+    "/mnt/d/T3S_exp/deliveries/rootflow_gemini38_configuration_20261023/rootflow_gemini38_flash.yaml": "43e0480b767ba492c22fb88a6b8b4d26b672e0b2e7aa01f300567c10e02bd11e",
+    "/home/yangchengyu/searchqa_v2_v7_fulltest1400_seed42_20261020/fulltest1400/plan.json": "6639fc70677722883fa7cd5deb3f058e92e7865a6ae2af0cf0edd14c0bd4850a",
+    "/home/yangchengyu/asg_atomic_unified_r1_selector_20261010/data/main_experiment_v1/searchqa/test.json": "c95e68095a493323cb6a5e664cb1685c098728f21d5be68091db27c4ca2b4f8d",
+    "/home/yangchengyu/asg_atomic_unified_r1_selector_20261010/data/main_experiment_v1/manifest.json": "b85e0c2e442ca6b97ef98ece895719d4231f18db29682b0fcb6fdf3f91c37c95",
+    "/home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1/searchqa/test.json": "bd4e9bda35f94fb40aa469e0bc4cdd3d496703bbc58dee419cef5214a70e748c"
+  },
+  "purpose": "One full canonical Test1400 using configured RootFlow gemini-3.8-flash; unchanged V7 Bank, messages, workflow, public context and official scorer.",
+  "limits": {
+    "token_limit": 8000000,
+    "request_limit": 3000,
+    "finish_reserve": 0
+  },
+  "post_test_development": true,
+  "replay_sources": {},
+  "refusal_policy": {
+    "version": "provider-terminal-refusal.v2",
+    "authorization": "用户要求启动配置好的 Gemini 完整 Test；保留明确拒答原始记录及未知费用预留。",
+    "refusal": "Official empty-answer scoring; keep in denominator; no retry or prompt alteration.",
+    "billing": "Missing usage stays unknown; retain full original reservation, never fabricate zero usage.",
+    "other_errors": "Stop without scoring; unknown transport/inference failures are not refusals."
+  },
+  "canonical_order": true,
+  "fresh_independent_run": true,
+  "generation_seed_supported": false,
+  "reference": "/home/yangchengyu/searchqa_v2_v7_fulltest1400_seed42_20261020/fulltest1400/v7_text_compiler",
+  "source_provenance": {
+    "base_commit": "5ff29b0a785642aa5ba54918843ebcdc586afae0",
+    "source_commit": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "source": "/home/yangchengyu/asg_searchqa_gemini38_release_20261023",
+    "provider_patch_commits": [
+      "1d7814b",
+      "4005f1a"
+    ],
+    "provider_patch_sha256": "2089b3c8c4ac0006988ee590f7ced33fbcc63b45a216c20a41523af525a13fde",
+    "changed_source_files": [
+      "src/atomic_skillgraph/agents/provider.py",
+      "src/atomic_skillgraph/empirical/system.py"
+    ],
+    "bank_method_scorer_unchanged": true,
+    "additional_fix": "Resumed task summary merges exact saved request audit as well as usage; no new calls, prompt, score or method changes.",
+    "source_patch_sha256": "6d16694626ee8dc986a8424ebc5c88c7c55c54c0049983c3d31365075258db4b"
+  }
+}

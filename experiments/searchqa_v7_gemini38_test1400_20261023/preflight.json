@@ -1,0 +1,73 @@
+{
+  "passed": true,
+  "stage": "fulltest1400",
+  "tasks": 1400,
+  "arms": [
+    "v7_text_compiler"
+  ],
+  "at": "2026-10-23T06:47:24.952250+00:00",
+  "real_http": 0,
+  "same_v7_bank": true,
+  "same_public_input_order": true,
+  "same_runtime_and_scorer": true,
+  "no_inherited_results": true,
+  "config": {
+    "base_url": "https://api.rootflowai.com/v1",
+    "model": "gemini-3.8-flash",
+    "api_key_env": "ROOTFLOWAI_API_KEY",
+    "dialect": "rootflow_gemini38_chat",
+    "stream": true,
+    "token_limit_field": "max_tokens",
+    "generation_seed_supported": false,
+    "capability_profile": {
+      "tools": true,
+      "thinking": true,
+      "reasoning_effort": true,
+      "generation_seed": false
+    },
+    "purpose_protocols": {
+      "runtime": {
+        "thinking_type": "enabled",
+        "reasoning_effort": "high"
+      },
+      "learning": {
+        "thinking_type": "enabled",
+        "reasoning_effort": "high"
+      },
+      "finish": {
+        "thinking_type": "enabled",
+        "reasoning_effort": "high"
+      }
+    },
+    "provider": "openai_compatible",
+    "display_name": "gemini-3.8-flash",
+    "input_modalities": [
+      "text"
+    ],
+    "max_retries": 0,
+    "reasoning_effort": "high",
+    "protocol": {
+      "thinking_type": "enabled"
+    },
+    "runtime": {
+      "max_completion_tokens": 65536,
+      "request_timeout_seconds": 600,
+      "max_total_tokens_per_task": 128000
+    },
+    "purpose_overrides": {
+      "finish_only": {
+        "protocol": {
+          "thinking_type": "enabled"
+        },
+        "reasoning_effort": "high",
+        "max_completion_tokens": 16384
+      },
+      "learning_structure_repair": {
+        "protocol": {
+          "thinking_type": "disabled"
+        },
+        "max_completion_tokens": 2048
+      }
+    }
+  }
+}

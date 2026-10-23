@@ -1,0 +1,229 @@
+{
+  "passed": true,
+  "at": "2026-10-23T06:48:29.342577+00:00",
+  "real_http_from_check": 0,
+  "source": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "snapshot": {
+    "stage": "fulltest1400",
+    "arms": {
+      "v7_text_compiler": {
+        "completed": 12,
+        "total": 1400,
+        "correct": 12,
+        "tokens": 36470,
+        "native_graphs": 12,
+        "program_calls": 12,
+        "program_ok": 12
+      }
+    },
+    "campaign_tokens": 36470,
+    "campaign_http": 13,
+    "inflight_or_unmetered": 1,
+    "unknown_reserved_tokens": 77334,
+    "billing_blocked": false,
+    "refusals": 0,
+    "status": "running",
+    "at": "2026-10-23T06:48:29.342193+00:00",
+    "pid": "37162",
+    "process_alive": true,
+    "current": {
+      "task_id": "searchqa:6db35769ae81425781881647d14b9533",
+      "arm": "v7_text_compiler",
+      "started_at": "2026-10-23T06:48:19.329396+00:00"
+    },
+    "error": null
+  },
+  "samples": [
+    {
+      "task_id": "searchqa:5093b6d997674d25be29a4c94fcd5185",
+      "request_id": "provider_request_9689ce27ab12435fb0c0603ea4c510ea",
+      "parameters": {
+        "model": "gemini-3.8-flash",
+        "max_tokens": 65536,
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "reasoning_effort": "high"
+      },
+      "raw_usage": {
+        "prompt_tokens": 2785,
+        "completion_tokens": 187,
+        "total_tokens": 2972,
+        "billing_usage": {
+          "source": "gemini_chat",
+          "semantic": "gemini",
+          "gemini_usage_metadata": {
+            "promptTokenCount": 2785,
+            "toolUsePromptTokenCount": 0,
+            "candidatesTokenCount": 10,
+            "totalTokenCount": 2972,
+            "thoughtsTokenCount": 177,
+            "cachedContentTokenCount": 0,
+            "promptTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 2785
+              }
+            ],
+            "toolUsePromptTokensDetails": [],
+            "candidatesTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 10
+              }
+            ]
+          }
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "text_tokens": 2785,
+          "audio_tokens": 0,
+          "image_tokens": 0
+        },
+        "completion_tokens_details": {
+          "text_tokens": 10,
+          "audio_tokens": 0,
+          "image_tokens": 0,
+          "reasoning_tokens": 177
+        },
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "input_tokens_details": null,
+        "claude_cache_creation_5_m_tokens": 0,
+        "claude_cache_creation_1_h_tokens": 0
+      },
+      "response_model": "gemini-3.8-flash",
+      "program_consumed": true
+    },
+    {
+      "task_id": "searchqa:99dc9de2fd094b8e9de41a9040081c1d",
+      "request_id": "provider_request_bbb75a51538a45d5b80aa8be9936e0e4",
+      "parameters": {
+        "model": "gemini-3.8-flash",
+        "max_tokens": 65536,
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "reasoning_effort": "high"
+      },
+      "raw_usage": {
+        "prompt_tokens": 2830,
+        "completion_tokens": 123,
+        "total_tokens": 2953,
+        "billing_usage": {
+          "source": "gemini_chat",
+          "semantic": "gemini",
+          "gemini_usage_metadata": {
+            "promptTokenCount": 2830,
+            "toolUsePromptTokenCount": 0,
+            "candidatesTokenCount": 7,
+            "totalTokenCount": 2953,
+            "thoughtsTokenCount": 116,
+            "cachedContentTokenCount": 0,
+            "promptTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 2830
+              }
+            ],
+            "toolUsePromptTokensDetails": [],
+            "candidatesTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 7
+              }
+            ]
+          }
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "text_tokens": 2830,
+          "audio_tokens": 0,
+          "image_tokens": 0
+        },
+        "completion_tokens_details": {
+          "text_tokens": 7,
+          "audio_tokens": 0,
+          "image_tokens": 0,
+          "reasoning_tokens": 116
+        },
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "input_tokens_details": null,
+        "claude_cache_creation_5_m_tokens": 0,
+        "claude_cache_creation_1_h_tokens": 0
+      },
+      "response_model": "gemini-3.8-flash",
+      "program_consumed": true
+    },
+    {
+      "task_id": "searchqa:979e3f5aac91446b8550161dd89e9e26",
+      "request_id": "provider_request_2005244eee3b4917905ae635a08b5ccd",
+      "parameters": {
+        "model": "gemini-3.8-flash",
+        "max_tokens": 65536,
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "reasoning_effort": "high"
+      },
+      "raw_usage": {
+        "prompt_tokens": 2760,
+        "completion_tokens": 285,
+        "total_tokens": 3045,
+        "billing_usage": {
+          "source": "gemini_chat",
+          "semantic": "gemini",
+          "gemini_usage_metadata": {
+            "promptTokenCount": 2760,
+            "toolUsePromptTokenCount": 0,
+            "candidatesTokenCount": 8,
+            "totalTokenCount": 3045,
+            "thoughtsTokenCount": 277,
+            "cachedContentTokenCount": 0,
+            "promptTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 2760
+              }
+            ],
+            "toolUsePromptTokensDetails": [],
+            "candidatesTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 8
+              }
+            ]
+          }
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "text_tokens": 2760,
+          "audio_tokens": 0,
+          "image_tokens": 0
+        },
+        "completion_tokens_details": {
+          "text_tokens": 8,
+          "audio_tokens": 0,
+          "image_tokens": 0,
+          "reasoning_tokens": 277
+        },
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "input_tokens_details": null,
+        "claude_cache_creation_5_m_tokens": 0,
+        "claude_cache_creation_1_h_tokens": 0
+      },
+      "response_model": "gemini-3.8-flash",
+      "program_consumed": true
+    }
+  ],
+  "same_public_messages_bank_and_method": true
+}

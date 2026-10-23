@@ -1,0 +1,11 @@
+{
+  "status": "approved",
+  "at": "2026-10-23T06:47:24.508620+00:00",
+  "user_instruction": "用户：启动配置好的gemini-3.8-flash的test；按当前会话同一V7 Bank运行一次SearchQA完整Test1400。",
+  "scope": "One complete SearchQA Test1400 with unchanged V7; no extra trial or training.",
+  "execution_cap": {
+    "tokens": 8000000,
+    "http": 3000
+  },
+  "cap_basis": "Execution safeguard selected for the authorized full test, not an authorization copied from another benchmark."
+}

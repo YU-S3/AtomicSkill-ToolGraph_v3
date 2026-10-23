@@ -1,0 +1,11 @@
+{
+  "parent": null,
+  "prior_searchqa_tokens": 0,
+  "prior_searchqa_http": 0,
+  "limits": {
+    "token_limit": 8000000,
+    "request_limit": 3000,
+    "finish_reserve": 0
+  },
+  "accounting": "First SearchQA Gemini run; interface probes and LiveMath costs remain in their separate original ledgers, neither erased nor billed twice."
+}

@@ -1,0 +1,13 @@
+{
+  "pid": 37162,
+  "at": "2026-10-23T06:47:26.772237+00:00",
+  "command": [
+    "/home/yangchengyu/asg_alfworld_venv/bin/python",
+    "-B",
+    "-u",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_gemini38_test1400_20261023/run_gemini.py",
+    "run"
+  ],
+  "resume": false,
+  "plan_sha256": "6dc05feaf425e695df6a7e2ef9334598345eec40cf41615e3a1f37818452d712"
+}
