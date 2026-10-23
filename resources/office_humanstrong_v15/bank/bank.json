@@ -1,0 +1,1677 @@
+{
+  "schema": "human.frontier.bank.v1",
+  "benchmark": "officeqa",
+  "method_version": "office.humanstrong.operation-bound.v15.20261024",
+  "seed": 42,
+  "asset_origin": "external_human_edited_reference_not_learned_ours",
+  "admission": {
+    "learning_provenance": false,
+    "train_transfer_gate": false,
+    "utility_promotion": false
+  },
+  "input_protocol": "office.external-minimax.public-pages.v1",
+  "default_workflow_id": null,
+  "workflow_runtime": "stored_reference_only_native_dynamic_runtime",
+  "measured_performance": null,
+  "status": "development_candidate_not_accepted",
+  "source_basis": "Public formulas and table semantics checked against V14 failures and historical/Trace2Skill successful processes. No task IDs, gold values or answer lookup. Development-exposed human reference, not learned or blind Test evidence.",
+  "skill": [
+    {
+      "kind": "skill",
+      "title": "share_difference",
+      "goal": "Difference of shares",
+      "guidance": "For two categories sharing one total: (first-second)/total. A decimal answer keeps that fraction; percent multiplies by 100 once. Do not confuse this with relative growth over the second category.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_e16cf22c4ca08065e5a8ce127cede0cd45072f3ed9fba03b9ef6e6e037619fd8"
+    },
+    {
+      "kind": "skill",
+      "title": "decimal_scale",
+      "goal": "Decimal output scale",
+      "guidance": "A decimal ratio is the fraction, not the percentage number: 25%=0.25. Preserve the unrounded fraction; round only after the requested scale is fixed.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_b995446d765fe8d4aeb4c70ef64acf4b7aefd468dd05f42b11ab64049ec973c8"
+    },
+    {
+      "kind": "skill",
+      "title": "polynomial_fit",
+      "goal": "Complete source series before polynomial forecasting",
+      "guidance": "Fit only the specified observations with an intercept; keep the target actual outside the fit. Use all required months. A polynomial of degree d needs at least d+1 distinct x values.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_4f999db7c76c0b0b7bd1076aa189a0c02e92d509923e0e4ce27b50fc390e8099"
+    },
+    {
+      "kind": "skill",
+      "title": "difference_value",
+      "goal": "Source-bound subtraction",
+      "guidance": "Subtract matching categories and units: signed change is new minus old; absolute difference takes abs only when requested.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_f8a8e7dc60e2bc75f3712911c3d20256ce1bee29d670c78ee0e4993bdc373fdf"
+    },
+    {
+      "kind": "skill",
+      "title": "rolling_range",
+      "goal": "Rolling statistic over the full requested scope",
+      "guidance": "Keep months in order and years in separate groups. Compute each full rolling window, then pooled max minus min across the requested groups. Do not report a min-to-max interval.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_f9598376cf9776f5ca182e1f1150d2824d8d4e4e7ab86e7dea96d86d8cd6edc9"
+    },
+    {
+      "kind": "skill",
+      "title": "compound_growth",
+      "goal": "Source-bound compound growth and final percent display",
+      "guidance": "CAGR=(end/start)^(1/elapsed_years)-1. Count intervals, not rows. Percent per year means multiply by 100 once and follow the requested final display; do not round endpoints.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_44dcd2d461416c84b4d0aabeee59a4a42f152103cf9a221bbd2a4ebdc9c1b16d"
+    },
+    {
+      "kind": "skill",
+      "title": "annual_log",
+      "goal": "Source-bound annual log growth",
+      "guidance": "Continuous relative change is ln(end/start). Divide by elapsed years only for an annualized rate; otherwise use one interval. It is not an absolute currency difference.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_79dbcce2ae6c5f6c3342e268eff46c6b976c86a9f6eb8a573d6d705dec29b12c"
+    },
+    {
+      "kind": "skill",
+      "title": "absolute_deviation",
+      "goal": "Absolute deviation from the stated benchmark",
+      "guidance": "Average absolute deviation from a benchmark is mean(abs(value-benchmark)); retain all requested dates. Percentage-point inputs stay at that magnitude; a unit of measure need not be a suffix.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_bd8cb6585f44aca3ea3a1818d3fda3659023fa368386424760553693394a4d92"
+    },
+    {
+      "kind": "skill",
+      "title": "dispersion",
+      "goal": "Select the statistical population before calculation",
+      "guidance": "For all stated years use population divisor n. Use n-1 only for an explicitly requested sample estimate. Do not change the convention after computing.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_be33c547c6b541ce30a5d23ddf3a1afa3ea73ee482cab4c2c1f43e83b7cf9d4d"
+    },
+    {
+      "kind": "skill",
+      "title": "regression_coordinates",
+      "goal": "Source-bound linear fit and signed forecast error",
+      "guidance": "Fit the requested years only, in the stated t coordinates. Keep forecast_x and its actual value outside fitting periods. Preserve the requested forecast-minus-actual sign.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_fb6e414d24b042a48558cf7978d0f68f2f5a530d396c82d31575746258162ddc"
+    },
+    {
+      "kind": "skill",
+      "title": "paired_series",
+      "goal": "Evidence-backed paired series",
+      "guidance": "Pair both observed series by the same period and adjustment basis. Do not fill a missing external series from memory. A correlation needs both actual series.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_9a2f28250c5a82b0c336761fb2fdaade1e0c68744cc46886161bc2a5cbe30829"
+    },
+    {
+      "kind": "skill",
+      "title": "series_scope",
+      "goal": "Mean over exactly the requested periods",
+      "guidance": "Use exactly the requested periods and category for a mean. Preserve blank columns; exclude adjacent totals, duplicated months and forecast observations.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_a5f4caf72382c4b900481471454daf72024a3f7939b026f210c785a5da00efe0"
+    },
+    {
+      "kind": "skill",
+      "title": "log_trim",
+      "goal": "Logarithm and trimming order",
+      "guidance": "Apply the requested logarithm first, sort, remove floor(n*proportion) values per tail, then average the retained values. Take the total column, not a financing component.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_16df40c783b2542b9132d494d518356e6254593f366330cf4f4cc5ebe18648f2"
+    },
+    {
+      "kind": "skill",
+      "title": "median_deviation",
+      "goal": "Deviation from median",
+      "guidance": "Compute the median of the complete selected series, then average absolute distances from that median. Verify revisions before fixing the series.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_2727b6186648805313d0e577f7499beaddff99c48d626126605edcf98eda077a"
+    },
+    {
+      "kind": "skill",
+      "title": "theil",
+      "goal": "Theil T definition",
+      "guidance": "For positive observations, Theil T is mean((x/mean(x))*ln(x/mean(x))). Round the computed result normally; do not truncate to fit an expected-looking value.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_7c00e2d30aeefb62e8e44493ffbf74bafc6bcd9f0f557135f44c48d9f84a55ee"
+    },
+    {
+      "kind": "skill",
+      "title": "revision_basis",
+      "goal": "Choose the matching revision before binding cells",
+      "guidance": "Honor an explicit as-of release. Otherwise compare already supplied same-definition historical revisions before binding the value. Once all required periods and headers are verified, compute; do not expand to every bulletin merely because years repeat.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_5f6f50ef274b874ac62f2888c50d4a2790675ece6b9cd7428299948876cfff2a"
+    },
+    {
+      "kind": "skill",
+      "title": "total_scope",
+      "goal": "Totals across continued panels",
+      "guidance": "A total may be in the continued panel; do not substitute its largest component. Reporting in dollars does not restrict a category to dollar-denominated assets.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_d22b292a5ea3b515f7ced1b91a10cf300f1b3092a91734f78aa5def8d7a1c97b"
+    },
+    {
+      "kind": "skill",
+      "title": "table_groups",
+      "goal": "Faithful cells in grouped tables",
+      "guidance": "Count blank cells as columns. Read the full year/category header above a repeated month. Bind the exact row in that group, not the first matching month elsewhere.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "skill_8f14bbfdc54c93ef4670c37982e9ac2b7022effd6e694eb433e03f361efb9510"
+    },
+    {
+      "kind": "skill",
+      "title": "arc_change",
+      "goal": "Distinguish arc change from ordinary growth",
+      "guidance": "Arc or symmetric percentage change uses (new-old)/((old+new)/2), not (new-old)/old. Take abs only if requested; convert the fraction to percent only when requested, multiplying by 100 once. This endpoint change is not annualized and does not divide by the number of years. If an elasticity specifies a second changing quantity, divide by that quantity's midpoint change. Compute with unrounded operands and format only at submission.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "arc (?:percent|percentage)|arc elasticity.*midpoint percentage|mid[ -]?point.normalized|symmetric.*(?:change|difference)"
+      },
+      "id": "skill_fb4590a511cc0ce660866cce91116527aa1b21a6c6453a435bbf9358fb563dc6"
+    },
+    {
+      "kind": "skill",
+      "title": "percent_difference",
+      "goal": "Distinguish symmetric percent difference from directional growth",
+      "guidance": "An absolute percent difference between two amounts uses abs(b-a)/((a+b)/2)*100 when no reference baseline is specified. A percent change relative to a named baseline instead divides by that baseline. Do not substitute one formula for the other. Keep source units equal, calculate at full precision, then round and submit only the requested result.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "absolute percent(?:age)? difference"
+      },
+      "id": "skill_665a99f3d09e2073ca39fdc98909e0b63afb274f61085e76528a64bb638acfb5"
+    },
+    {
+      "kind": "skill",
+      "title": "median_absolute_deviation",
+      "goal": "Use the median rather than mean for explicitly defined MAD",
+      "guidance": "When MAD is defined as median absolute deviation, first m=median(values), then MAD=median(abs(x-m)). It is not mean(abs(x-m)). Keep the exact requested observation periods, units and revisions; calculate any subsequent difference against the named benchmark only after MAD is computed.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "median absolute deviation|MAD.*median"
+      },
+      "id": "skill_137a8d713d65721d300e85ad0085ace45380a8a844cd52bcc68d25541509f41e"
+    },
+    {
+      "kind": "skill",
+      "title": "table_block_binding",
+      "goal": "Keep extracted observations inside their named table and row type",
+      "guidance": "Bind each value to table title, row label, full column header, unit and period. End extraction at the next table heading. Never scan a fixed character chunk across tables or let another same-year row overwrite an annual total. Separate annual, monthly, fiscal-to-date and estimate rows. Where receipts/outlays are present, check total surplus=total receipts-total outlays before fitting.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "polynomial|surplus|deficit|Treasury TAB|Ownership Survey"
+      },
+      "id": "skill_80629ac7b565b8b1bb65448231d1c80decc91ec1a4cb5e4773530f9d1ef61894"
+    },
+    {
+      "kind": "skill",
+      "title": "log_growth_cv",
+      "goal": "Calculate coefficient of variation of log growth rates",
+      "guidance": "For levels x[0..n], form consecutive g[i]=ln(x[i+1]/x[i]); CV=population_std(g)/mean(g) when population is requested. Compute both series at full precision, then abs(CV1-CV2); round once. Use Python for the complete operation, especially when mean growth is near zero. Failed execution supplies no computed value.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "coefficient of variation.*log growth|growth-based Debt Sustainability"
+      },
+      "id": "skill_aa8c483cbb121c2db3ddec042fdd21d6a5bad6a2942e1347db4beffe1d5c1ea8"
+    },
+    {
+      "kind": "skill",
+      "title": "complete_monthly_series",
+      "goal": "Compute a complete monthly mean or argmax",
+      "guidance": "Build explicit (year,month,series1,series2) records from the table's year groups. Require exactly one record for every requested month before computing spread=series1-series2. Use Python for mean or argmax over all records; do not average a convenient panel or estimate from visual peaks. Keep the winning year/month with argmax, then apply any requested encoding arithmetically.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "yield spread|across the months|each month.*average"
+      },
+      "id": "skill_b9187157268aa68b5be6acb4f0912a26d24b7c0f386db4369a90b3e023630af5"
+    },
+    {
+      "kind": "skill",
+      "title": "month_encoding",
+      "goal": "Apply a requested arithmetic date encoding",
+      "guidance": "After finding the requested month and year, compute the stated arithmetic expression explicitly. For month*100+year, do that addition; do not concatenate YYYYMM or use year*100+month. Submit the calculated integer only.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "month.*multiply.*100|month.*multiplied.*100"
+      },
+      "id": "skill_579a8f39f1499846f00ab6c4dffa0fb013670a178c26cf17d6a1b245c155e1e4"
+    },
+    {
+      "kind": "skill",
+      "title": "category_aggregation",
+      "goal": "Count named categories after merging their subcolumns",
+      "guidance": "The question's named categories are the counting units. Combine life and fire/casualty insurance into insurance companies, and general plus pension funds into state/local governments when those are the named parent categories. Sum all in-scope instrument rows per category before applying the threshold. Do not count total outstanding or all-other-investors as a requested category.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "categories.*(?:Treasury|securities)|Ownership Survey"
+      },
+      "id": "skill_831badda7eac6e04cb3686cc544bd0db7c14d0a36ad44027276a29b373251f37"
+    },
+    {
+      "kind": "skill",
+      "title": "ffo_public_layout",
+      "goal": "Recognize Treasury FFO-1 annual totals",
+      "guidance": "FFO-1 fact card: receipts, outlays and surplus/deficit each have total/on-budget/off-budget columns. Annual fiscal-year rows and later fiscal-to-date/monthly rows can repeat the same year. Select the total surplus/deficit of the annual row, inside FFO-1; retain its header and row evidence. A repeated year later in the page is not automatically a revised annual value.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "source_basis": "Public FFO-1 headers and row types in the supplied Treasury Bulletin pages; no target answers.",
+      "applicability": {
+        "when": "surplus|deficit|polynomial",
+        "source_pattern": "FFO-1"
+      },
+      "id": "skill_329e969aec94a6c5ed3f74e2ec4efaffc348ae595d8f87d3ae39a8ab51455b36"
+    },
+    {
+      "kind": "skill",
+      "title": "ay1_public_layout",
+      "goal": "Recognize repeated year panels in the bond yield table",
+      "guidance": "AY-1 fact card: monthly rows repeat Jan-Dec in stacked year bands and horizontal groups of Treasury/Aa-corporate/municipal columns. OCR may omit the year labels. Verify group years using visible labels and dated weekly overlap; the partially populated last band is not a complete earlier year. Keep blank cells and footnote markers from shifting numeric columns.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "source_basis": "Public AY-1 table headers, repeated Jan-Dec bands and weekly-date overlap in supplied pages; no target answers.",
+      "applicability": {
+        "when": "yield spread|Corporate Aa|corporate Aa",
+        "source_pattern": "Aa new corporate bonds"
+      },
+      "id": "skill_e1f1d1f04a560b098852bd86657c8d57f111b5fb2a49c2a6bb5155f3b3376191"
+    },
+    {
+      "kind": "skill",
+      "title": "answer_only",
+      "goal": "Submit the chosen result without changing its meaning",
+      "guidance": "Choose the requested answer fields and their scale before calculating. Submit only those fields, without explanation or alternative formulas. Preserve a successfully computed final answer; do not replace it with an intermediate operand at finalization. An explicit output template controls suffixes, list order and decimal width. Do not append unrequested units or recompute a correct result in prose.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "."
+      },
+      "id": "skill_d90e98a42e3a6bcfb78f21c778f96bd3a125f448a73229f492668e78f1d88878"
+    },
+    {
+      "kind": "skill",
+      "title": "normalized_midpoint",
+      "goal": "Submit a dimensionless midpoint-normalized difference",
+      "guidance": "Midpoint normalization divides the endpoint difference by the endpoint mean. The monetary units cancel: a question mentioning source dollars does not turn this ratio back into a dollar difference. Use absolute difference if requested or when asking for a difference between unordered endpoints. Keep fraction scale unless a percent is explicitly requested. Use midpoint_submit after binding the two same-definition values; submit its normalized result, not the raw difference or its percent variant.",
+      "execution_intent": "program_requested",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "mid[ -]?point.normalized difference"
+      },
+      "id": "skill_9cbfb086ab5f5465e298072e54b381f83f110610474b0429bdfb3896f2f81930"
+    },
+    {
+      "kind": "skill",
+      "title": "endpoint_growth",
+      "goal": "Keep CAGR, growth factor and endpoint midpoint change distinct",
+      "guidance": "For the requested endpoint growth summary, use CAGR=(end/start)^(1/elapsed_years)-1, annual factor=1+CAGR, and midpoint change=(end-start)/((end+start)/2). When arc elasticity is explicitly defined here as midpoint percentage change and no second economic quantity is given, do not invent a denominator from calendar years or elapsed-time indices. Use growth_submit to compute and submit the three fields in decimal form.",
+      "execution_intent": "program_requested",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "CAGR.*(?:decay factor|arc elasticity)|compound annual.*(?:decay factor|arc elasticity)"
+      },
+      "id": "skill_13371875cb6a3fb32492994e1350680c6d7d943f90f1255f5c47f2dad1baf505"
+    },
+    {
+      "kind": "skill",
+      "title": "paired_period_scope",
+      "goal": "Use one period mask and one measure for all paired statistics",
+      "guidance": "Create one ordered period list and align every series to exactly that list. Reuse the same mask for every requested statistic; a correlation must not silently expand to every month in the page. For vessels, distinguish number of vessels from net registered tonnage and arrivals from clearances. For growth CV, use consecutive log ratios of the selected levels. paired_statistics validates aligned periods and computes from the declared series; it cannot correct a wrongly selected column.",
+      "execution_intent": "program_requested",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "correlat|coefficient of variation.*log growth|growth-based Debt Sustainability"
+      },
+      "id": "skill_f09bb55ce7379794f43b59a0ef7182a33b6e9bd926e497efe84c67ad7afc4615"
+    },
+    {
+      "kind": "skill",
+      "title": "estimated_baseline_z",
+      "goal": "Use the estimated baseline spread for a new observation",
+      "guidance": "For a new observation compared with a baseline estimated from prior observations, use the baseline sample standard deviation (n-1), unless the question explicitly supplies or requests population spread. First derive the monthly increases from consecutive cumulative levels. Exclude the target from the baseline. Compute z=(target-baseline_mean)/baseline_sd, then apply the stated one-sided or absolute threshold. baseline_z makes the denominator and test direction explicit.",
+      "execution_intent": "program_requested",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "z.score.*(?:relative to|monthly increases)|statistically unusual.*z.level"
+      },
+      "id": "skill_f84c5b8b8aed85da1b964c42a5dd022ff116f39f563a746388b690afc064a69d"
+    },
+    {
+      "kind": "skill",
+      "title": "unit_conversion_before_fit",
+      "goal": "Convert each source column to the target unit before regression",
+      "guidance": "Read each table's printed unit before fitting. Convert each series separately to the requested unit: thousands to billions divides by 1,000,000; millions to billions divides by 1,000. Similar-looking old and new tables can use different units. Keep a (period, raw_value, source_unit, converted_value) ledger; check endpoint orders of magnitude before fitting. Do not silently use the same divisor for both sources.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "regression|linear trend|polynomial"
+      },
+      "id": "skill_04d2ba79101371fa7199039ef66e707276cb15f6e2f959c913526ee3d15f5498"
+    },
+    {
+      "kind": "skill",
+      "title": "debt_holder_columns",
+      "goal": "Separate total public debt from government-account holdings",
+      "guidance": "Debt-holder table fact: total outstanding, government-account holdings, and public holdings are distinct columns; each may also split public debt and guaranteed securities. Bind the full parent and child header. A series near total outstanding is not government-account holdings. Where categories exhaust the same definition, check government accounts + public = total before calculating growth.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "held by.*government.*held by.*public|growth-based Debt Sustainability",
+        "source_pattern": "Government accounts|government accounts"
+      },
+      "id": "skill_29057ed20b5be1423dc0854f690b776e0654a5b27cb27966d6fea3b5bb69834e"
+    },
+    {
+      "kind": "skill",
+      "title": "tax_anticipation_scope",
+      "goal": "Restrict TAB aggregation to the named instrument",
+      "guidance": "TAB means tax anticipation bills, not all Treasury bills or all marketable securities. Filter instrument rows to tax anticipation issues before summing holdings. Then merge subcolumns into the question's named investor categories (life/fire insurance; general/pension state-local funds), apply the threshold per category per requested year, and sum those counts. Do not count the total-outstanding column as an investor category.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "Treasury TAB|tax.anticipation"
+      },
+      "id": "skill_8b63144700e464e61d809ac5ebec3b17bc74c69d3ae470225fb9bdce166a5c54"
+    },
+    {
+      "kind": "skill",
+      "title": "source_first_compute",
+      "goal": "Finish a grounded calculation before expanding retrieval",
+      "guidance": "When the supplied public pages contain the required rows, extract them and run the calculation now. Search only for a named missing period, header or measure. Return a compact computed object with the chosen formula, aligned operands, units and one final answer; avoid producing many alternative answers and asking the finalizer to choose. A missing value stays missing. Use a compatible linked Program when ready; otherwise use one bounded temporary Python calculation.",
+      "execution_intent": "guidance_only",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "origin": "human_edited_public_methods",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "applicability": {
+        "when": "mid[ -]?point|arc elasticity|correlat|z.score|coefficient of variation|polynomial"
+      },
+      "id": "skill_2086eb32457a878ff0b74da00fa237fae2e647b17444980b1c45895359a859a8"
+    }
+  ],
+  "program": [
+    {
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "final_answer",
+      "entry_constraints": {
+        "selector": "acquired_numeric_leaf",
+        "description": "Caller explicitly declares source and output scales",
+        "proof_scope": "numeric_conversion_and_display_only"
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "title": "Submit an acquired final scalar with explicit scale and requested display",
+      "source_file": "programs/scalar_display.py",
+      "source": "\"\"\"Convert an acquired, typed quantity once; round only for final display.\"\"\"\nfrom decimal import Decimal, localcontext, ROUND_HALF_UP\n\n\ndef render(value, source_scale, output_scale, style, decimals, unit, suffix=None, fixed_decimals=False):\n    scales={'quantity','fraction','percent','percentage_points'}\n    if source_scale not in scales or output_scale not in scales:\n        raise ValueError('Explicit known source/output scale required')\n    if type(value) not in (str,int,float) or type(decimals) is not int or not 0<=decimals<=18:\n        raise ValueError('Numeric value and decimals 0..18 required')\n    if type(fixed_decimals) is not bool:raise ValueError('fixed_decimals must be boolean')\n    if not isinstance(unit,str) or not unit.strip():raise ValueError('Source unit required')\n    if style not in ('number','percent','unit_suffix'):raise ValueError('Explicit display required')\n    if style=='percent' and output_scale!='percent':raise ValueError('Percent symbol requires percent scale')\n    if style=='unit_suffix' and (suffix!=unit or '%' in suffix):\n        raise ValueError('Suffix must equal the acquired unit; percent uses percent style')\n    if style!='unit_suffix' and suffix is not None:raise ValueError('Unexpected suffix')\n    with localcontext() as precision:\n        precision.prec=60;number=Decimal(str(value))\n        if not number.is_finite():raise ValueError('Finite unrounded value required')\n        if source_scale!=output_scale:\n            if source_scale in ('percent','percentage_points') and output_scale=='fraction':number/=100\n            elif source_scale=='fraction' and output_scale in ('percent','percentage_points'):number*=100\n            else:raise ValueError('Unsupported unit/scale conversion; calculate explicitly first')\n        number=number.quantize(Decimal(1).scaleb(-decimals),rounding=ROUND_HALF_UP)\n        if not number:number=abs(number)\n        answer=format(number,f'.{decimals}f')\n        if not fixed_decimals and '.' in answer:answer=answer.rstrip('0').rstrip('.')\n    return answer+('%' if style=='percent' else ' '+suffix if style=='unit_suffix' else '')\n\n\ndef run(ctx,inputs):\n    try:\n        if inputs['submit_answer'] is not True:raise ValueError('Explicit final submission required')\n        ref=inputs['value_ref']\n        result=ctx.call('read_result',{**ref,'offset':0,'limit':256})\n        if not result.get('accepted') or result.get('next_offset') is not None:\n            raise ValueError('Use one complete acquired numeric value_ref')\n        value=result['data'];fmt=inputs['format']\n        answer=render(value,inputs['source_scale'],fmt['output_scale'],fmt['style'],fmt['decimals'],\n                      inputs['unit'],fmt.get('suffix'),fmt.get('fixed_decimals',False))\n        return {'status':'ok','outputs':{'answer':answer,'value':str(value),'format':fmt,\n            'source_scale':inputs['source_scale'],'unit':inputs['unit'],'evidence':[{'source_ref':ref}],\n            'proof_scope':'Exact acquired scalar and explicit caller-declared scales; conversion/rounding only, not semantic validation.'}}\n    except (KeyError,TypeError,ValueError,ArithmeticError) as error:\n        return {'status':'needs_input','outputs':{},'detail':str(error)}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "submit_answer": {
+            "const": true
+          },
+          "value_ref": {
+            "type": "object",
+            "properties": {
+              "result_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "result_id",
+              "path"
+            ],
+            "additionalProperties": false
+          },
+          "source_scale": {
+            "enum": [
+              "quantity",
+              "fraction",
+              "percent",
+              "percentage_points"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "format": {
+            "type": "object",
+            "properties": {
+              "output_scale": {
+                "enum": [
+                  "quantity",
+                  "fraction",
+                  "percent",
+                  "percentage_points"
+                ]
+              },
+              "style": {
+                "enum": [
+                  "number",
+                  "percent",
+                  "unit_suffix"
+                ]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18
+              },
+              "suffix": {
+                "type": "string",
+                "minLength": 1
+              },
+              "fixed_decimals": {
+                "type": "boolean",
+                "description": "True only when an exact fixed-width decimal format is requested; default false removes redundant fractional zeros after rounding."
+              }
+            },
+            "required": [
+              "output_scale",
+              "style",
+              "decimals"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "submit_answer",
+          "value_ref",
+          "source_scale",
+          "unit",
+          "format"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1
+          },
+          "format": {
+            "type": "object"
+          },
+          "source_scale": {
+            "type": "string",
+            "minLength": 1
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence": {
+            "type": "array"
+          },
+          "proof_scope": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "answer",
+          "value",
+          "format",
+          "source_scale",
+          "unit",
+          "evidence",
+          "proof_scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [
+        "read_result"
+      ],
+      "id": "program_bf9f7b12637ff329ab18cbb01a00c611081d71e91791b922b8d62864bc3f987e",
+      "operation": "scalar_display"
+    },
+    {
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "final_answer",
+      "entry_constraints": {
+        "description": "Caller binds actual source operands and explicit units; this calculator validates arithmetic, not source semantics."
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "title": "Submit a dimensionless midpoint-normalized difference; explicit operands, validated formula, direct final submission",
+      "source_file": "programs/verified_math.py",
+      "source": "\"\"\"Small explicit calculations. Input selection remains the caller's responsibility.\"\"\"\nfrom decimal import Decimal, ROUND_HALF_UP, localcontext\nimport math\nimport statistics\n\n\ndef display(value, places, fixed=False):\n    if type(places) is not int or not 0 <= places <= 12: raise ValueError('decimals must be 0..12')\n    with localcontext() as precision:\n        precision.prec = 50\n        number = Decimal(str(value))\n        if not number.is_finite(): raise ValueError('Finite result required')\n        number = number.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)\n        if not number: number = abs(number)\n        answer = format(number, 'f')\n    return answer if fixed or '.' not in answer else answer.rstrip('0').rstrip('.')\n\n\ndef numbers(values):\n    if not isinstance(values, list) or not values or len(values) > 240: raise ValueError('Nonempty bounded numeric series required')\n    if any(type(x) not in (int, float) or not math.isfinite(x) for x in values): raise ValueError('Finite numeric operands required')\n    return values\n\n\ndef calculate(inputs):\n    op = inputs['operation']; a = numbers(inputs['values'])\n    details = {'operation': op, 'values': a, 'unit': inputs['unit']}\n    if not isinstance(inputs['unit'], str) or not inputs['unit'].strip(): raise ValueError('Source unit required')\n    if op in ('midpoint_submit', 'growth_submit'):\n        if len(a) != 2 or a[0] + a[1] == 0: raise ValueError('Two ordered endpoints with nonzero midpoint required')\n        midpoint = (a[1] - a[0]) / ((a[0] + a[1]) / 2)\n        if op == 'midpoint_submit':\n            value = abs(midpoint) if inputs['absolute'] else midpoint\n            if inputs['output_percent']: value *= 100\n            details['formula'] = '(end-start)/((start+end)/2)'\n        else:\n            if min(a) <= 0 or inputs['intervals'] <= 0: raise ValueError('Positive endpoints and elapsed intervals required')\n            factor = math.exp(math.log(a[1] / a[0]) / inputs['intervals'])\n            value = [factor - 1, factor, midpoint]\n            details['formula'] = '[exp(log(end/start)/intervals)-1, exp(log(end/start)/intervals), (end-start)/midpoint]'\n    elif op == 'paired_statistics':\n        b = numbers(inputs['other_values']); periods = inputs['periods']; expected = inputs['expected_periods']\n        if (len(a) != len(b) or len(a) != len(periods) or periods != expected or len(set(periods)) != len(periods)):\n            raise ValueError('Both series must match the same complete, unique requested period list')\n        details.update(other_values=b, periods=periods, statistic=inputs['statistic'])\n        if inputs['statistic'] == 'share_and_correlation':\n            da = [x - statistics.fmean(a) for x in a]; db = [x - statistics.fmean(b) for x in b]\n            denominator = math.sqrt(sum(x*x for x in da) * sum(x*x for x in db))\n            if not denominator or not sum(b): raise ValueError('Nonzero total and variation required')\n            value = [100 * sum(a)/sum(b), sum(x*y for x,y in zip(da,db))/denominator]\n            details['formula'] = '[100*sum(part)/sum(total), Pearson(part,total)] on identical periods'\n        elif inputs['statistic'] == 'absolute_log_growth_cv_difference':\n            def cv(series):\n                if len(series) < 3 or min(series) <= 0: raise ValueError('At least three positive levels required')\n                growth = [math.log(y/x) for x,y in zip(series,series[1:])]\n                mean = statistics.fmean(growth)\n                if mean == 0: raise ValueError('Zero mean log growth')\n                return statistics.pstdev(growth)/mean\n            value = abs(cv(a)-cv(b)); details['formula'] = 'abs(population_std(log_growth_a)/mean_a - population_std(log_growth_b)/mean_b)'\n        else: raise ValueError('Unknown paired statistic')\n    elif op == 'baseline_z':\n        if len(a) < 2: raise ValueError('At least two baseline observations required')\n        spread = statistics.stdev(a) if inputs['spread'] == 'sample' else statistics.pstdev(a)\n        if not spread: raise ValueError('Nonzero baseline spread required')\n        target = numbers([inputs['target']])[0]; z = (target-statistics.fmean(a))/spread\n        threshold = numbers([inputs['threshold']])[0]\n        if threshold <= 0: raise ValueError('Positive threshold required')\n        tested = abs(z) if inputs['two_sided'] else z\n        value = [z, 'unusual' if tested > threshold else 'normal']\n        details.update(formula='(target-baseline_mean)/baseline_sd', spread=inputs['spread'], target=target, two_sided=inputs['two_sided'], threshold=threshold)\n    else: raise ValueError('Unknown operation')\n    values = value if isinstance(value, list) else [value]\n    places = inputs['decimals']\n    if len(places) != sum(type(x) in (int,float) for x in values): raise ValueError('One decimals entry per numeric output field required')\n    numeric = iter(places)\n    fields = [display(x,next(numeric),inputs.get('fixed_decimals',False)) if type(x) in (int,float) else x for x in values]\n    answer = '['+', '.join(fields)+']' if isinstance(value,list) else fields[0]\n    if inputs.get('percent_suffix'):\n        if op != 'midpoint_submit' or not inputs['output_percent']: raise ValueError('Percent suffix requires percent-scaled scalar output')\n        answer += '%'\n    return {'answer':answer,'value':value,'calculation':details,\n        'evidence':inputs.get('operand_refs',[]),\n        'proof_scope':'Validates the declared arithmetic, scale and shared period mask; does not verify source-column semantics.'}\n\n\ndef run(ctx, inputs):\n    try:\n        if inputs['submit_answer'] is not True: raise ValueError('Explicit final submission required')\n        return {'status':'ok','outputs':calculate(inputs)}\n    except (KeyError, TypeError, ValueError, ArithmeticError) as error:\n        return {'status':'needs_input','outputs':{},'detail':str(error)}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "midpoint_submit"
+            ]
+          },
+          "submit_answer": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decimals": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 12
+            },
+            "minItems": 1,
+            "maxItems": 3
+          },
+          "fixed_decimals": {
+            "type": "boolean"
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "absolute": {
+            "type": "boolean"
+          },
+          "output_percent": {
+            "type": "boolean"
+          },
+          "percent_suffix": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation",
+          "submit_answer",
+          "values",
+          "unit",
+          "decimals",
+          "absolute",
+          "output_percent"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value": {},
+          "calculation": {
+            "type": "object"
+          },
+          "evidence": {
+            "type": "array"
+          },
+          "proof_scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "value",
+          "calculation",
+          "evidence",
+          "proof_scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "id": "program_46036e349d3dff45583ec5701ecf9678b452759ddb168ec0d8c77445e07be344",
+      "operation": "midpoint_submit"
+    },
+    {
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "final_answer",
+      "entry_constraints": {
+        "description": "Caller binds actual source operands and explicit units; this calculator validates arithmetic, not source semantics."
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "title": "Keep CAGR, growth factor and endpoint midpoint change distinct; explicit operands, validated formula, direct final submission",
+      "source_file": "programs/verified_math.py",
+      "source": "\"\"\"Small explicit calculations. Input selection remains the caller's responsibility.\"\"\"\nfrom decimal import Decimal, ROUND_HALF_UP, localcontext\nimport math\nimport statistics\n\n\ndef display(value, places, fixed=False):\n    if type(places) is not int or not 0 <= places <= 12: raise ValueError('decimals must be 0..12')\n    with localcontext() as precision:\n        precision.prec = 50\n        number = Decimal(str(value))\n        if not number.is_finite(): raise ValueError('Finite result required')\n        number = number.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)\n        if not number: number = abs(number)\n        answer = format(number, 'f')\n    return answer if fixed or '.' not in answer else answer.rstrip('0').rstrip('.')\n\n\ndef numbers(values):\n    if not isinstance(values, list) or not values or len(values) > 240: raise ValueError('Nonempty bounded numeric series required')\n    if any(type(x) not in (int, float) or not math.isfinite(x) for x in values): raise ValueError('Finite numeric operands required')\n    return values\n\n\ndef calculate(inputs):\n    op = inputs['operation']; a = numbers(inputs['values'])\n    details = {'operation': op, 'values': a, 'unit': inputs['unit']}\n    if not isinstance(inputs['unit'], str) or not inputs['unit'].strip(): raise ValueError('Source unit required')\n    if op in ('midpoint_submit', 'growth_submit'):\n        if len(a) != 2 or a[0] + a[1] == 0: raise ValueError('Two ordered endpoints with nonzero midpoint required')\n        midpoint = (a[1] - a[0]) / ((a[0] + a[1]) / 2)\n        if op == 'midpoint_submit':\n            value = abs(midpoint) if inputs['absolute'] else midpoint\n            if inputs['output_percent']: value *= 100\n            details['formula'] = '(end-start)/((start+end)/2)'\n        else:\n            if min(a) <= 0 or inputs['intervals'] <= 0: raise ValueError('Positive endpoints and elapsed intervals required')\n            factor = math.exp(math.log(a[1] / a[0]) / inputs['intervals'])\n            value = [factor - 1, factor, midpoint]\n            details['formula'] = '[exp(log(end/start)/intervals)-1, exp(log(end/start)/intervals), (end-start)/midpoint]'\n    elif op == 'paired_statistics':\n        b = numbers(inputs['other_values']); periods = inputs['periods']; expected = inputs['expected_periods']\n        if (len(a) != len(b) or len(a) != len(periods) or periods != expected or len(set(periods)) != len(periods)):\n            raise ValueError('Both series must match the same complete, unique requested period list')\n        details.update(other_values=b, periods=periods, statistic=inputs['statistic'])\n        if inputs['statistic'] == 'share_and_correlation':\n            da = [x - statistics.fmean(a) for x in a]; db = [x - statistics.fmean(b) for x in b]\n            denominator = math.sqrt(sum(x*x for x in da) * sum(x*x for x in db))\n            if not denominator or not sum(b): raise ValueError('Nonzero total and variation required')\n            value = [100 * sum(a)/sum(b), sum(x*y for x,y in zip(da,db))/denominator]\n            details['formula'] = '[100*sum(part)/sum(total), Pearson(part,total)] on identical periods'\n        elif inputs['statistic'] == 'absolute_log_growth_cv_difference':\n            def cv(series):\n                if len(series) < 3 or min(series) <= 0: raise ValueError('At least three positive levels required')\n                growth = [math.log(y/x) for x,y in zip(series,series[1:])]\n                mean = statistics.fmean(growth)\n                if mean == 0: raise ValueError('Zero mean log growth')\n                return statistics.pstdev(growth)/mean\n            value = abs(cv(a)-cv(b)); details['formula'] = 'abs(population_std(log_growth_a)/mean_a - population_std(log_growth_b)/mean_b)'\n        else: raise ValueError('Unknown paired statistic')\n    elif op == 'baseline_z':\n        if len(a) < 2: raise ValueError('At least two baseline observations required')\n        spread = statistics.stdev(a) if inputs['spread'] == 'sample' else statistics.pstdev(a)\n        if not spread: raise ValueError('Nonzero baseline spread required')\n        target = numbers([inputs['target']])[0]; z = (target-statistics.fmean(a))/spread\n        threshold = numbers([inputs['threshold']])[0]\n        if threshold <= 0: raise ValueError('Positive threshold required')\n        tested = abs(z) if inputs['two_sided'] else z\n        value = [z, 'unusual' if tested > threshold else 'normal']\n        details.update(formula='(target-baseline_mean)/baseline_sd', spread=inputs['spread'], target=target, two_sided=inputs['two_sided'], threshold=threshold)\n    else: raise ValueError('Unknown operation')\n    values = value if isinstance(value, list) else [value]\n    places = inputs['decimals']\n    if len(places) != sum(type(x) in (int,float) for x in values): raise ValueError('One decimals entry per numeric output field required')\n    numeric = iter(places)\n    fields = [display(x,next(numeric),inputs.get('fixed_decimals',False)) if type(x) in (int,float) else x for x in values]\n    answer = '['+', '.join(fields)+']' if isinstance(value,list) else fields[0]\n    if inputs.get('percent_suffix'):\n        if op != 'midpoint_submit' or not inputs['output_percent']: raise ValueError('Percent suffix requires percent-scaled scalar output')\n        answer += '%'\n    return {'answer':answer,'value':value,'calculation':details,\n        'evidence':inputs.get('operand_refs',[]),\n        'proof_scope':'Validates the declared arithmetic, scale and shared period mask; does not verify source-column semantics.'}\n\n\ndef run(ctx, inputs):\n    try:\n        if inputs['submit_answer'] is not True: raise ValueError('Explicit final submission required')\n        return {'status':'ok','outputs':calculate(inputs)}\n    except (KeyError, TypeError, ValueError, ArithmeticError) as error:\n        return {'status':'needs_input','outputs':{},'detail':str(error)}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "growth_submit"
+            ]
+          },
+          "submit_answer": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decimals": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 12
+            },
+            "minItems": 1,
+            "maxItems": 3
+          },
+          "fixed_decimals": {
+            "type": "boolean"
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "intervals": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "operation",
+          "submit_answer",
+          "values",
+          "unit",
+          "decimals",
+          "intervals"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value": {},
+          "calculation": {
+            "type": "object"
+          },
+          "evidence": {
+            "type": "array"
+          },
+          "proof_scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "value",
+          "calculation",
+          "evidence",
+          "proof_scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "id": "program_4af1325d174da7ea881156fd766336002a04346463a4d95851d353566259f641",
+      "operation": "growth_submit"
+    },
+    {
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "final_answer",
+      "entry_constraints": {
+        "description": "Caller binds actual source operands and explicit units; this calculator validates arithmetic, not source semantics."
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "title": "Use one period mask and one measure for all paired statistics; explicit operands, validated formula, direct final submission",
+      "source_file": "programs/verified_math.py",
+      "source": "\"\"\"Small explicit calculations. Input selection remains the caller's responsibility.\"\"\"\nfrom decimal import Decimal, ROUND_HALF_UP, localcontext\nimport math\nimport statistics\n\n\ndef display(value, places, fixed=False):\n    if type(places) is not int or not 0 <= places <= 12: raise ValueError('decimals must be 0..12')\n    with localcontext() as precision:\n        precision.prec = 50\n        number = Decimal(str(value))\n        if not number.is_finite(): raise ValueError('Finite result required')\n        number = number.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)\n        if not number: number = abs(number)\n        answer = format(number, 'f')\n    return answer if fixed or '.' not in answer else answer.rstrip('0').rstrip('.')\n\n\ndef numbers(values):\n    if not isinstance(values, list) or not values or len(values) > 240: raise ValueError('Nonempty bounded numeric series required')\n    if any(type(x) not in (int, float) or not math.isfinite(x) for x in values): raise ValueError('Finite numeric operands required')\n    return values\n\n\ndef calculate(inputs):\n    op = inputs['operation']; a = numbers(inputs['values'])\n    details = {'operation': op, 'values': a, 'unit': inputs['unit']}\n    if not isinstance(inputs['unit'], str) or not inputs['unit'].strip(): raise ValueError('Source unit required')\n    if op in ('midpoint_submit', 'growth_submit'):\n        if len(a) != 2 or a[0] + a[1] == 0: raise ValueError('Two ordered endpoints with nonzero midpoint required')\n        midpoint = (a[1] - a[0]) / ((a[0] + a[1]) / 2)\n        if op == 'midpoint_submit':\n            value = abs(midpoint) if inputs['absolute'] else midpoint\n            if inputs['output_percent']: value *= 100\n            details['formula'] = '(end-start)/((start+end)/2)'\n        else:\n            if min(a) <= 0 or inputs['intervals'] <= 0: raise ValueError('Positive endpoints and elapsed intervals required')\n            factor = math.exp(math.log(a[1] / a[0]) / inputs['intervals'])\n            value = [factor - 1, factor, midpoint]\n            details['formula'] = '[exp(log(end/start)/intervals)-1, exp(log(end/start)/intervals), (end-start)/midpoint]'\n    elif op == 'paired_statistics':\n        b = numbers(inputs['other_values']); periods = inputs['periods']; expected = inputs['expected_periods']\n        if (len(a) != len(b) or len(a) != len(periods) or periods != expected or len(set(periods)) != len(periods)):\n            raise ValueError('Both series must match the same complete, unique requested period list')\n        details.update(other_values=b, periods=periods, statistic=inputs['statistic'])\n        if inputs['statistic'] == 'share_and_correlation':\n            da = [x - statistics.fmean(a) for x in a]; db = [x - statistics.fmean(b) for x in b]\n            denominator = math.sqrt(sum(x*x for x in da) * sum(x*x for x in db))\n            if not denominator or not sum(b): raise ValueError('Nonzero total and variation required')\n            value = [100 * sum(a)/sum(b), sum(x*y for x,y in zip(da,db))/denominator]\n            details['formula'] = '[100*sum(part)/sum(total), Pearson(part,total)] on identical periods'\n        elif inputs['statistic'] == 'absolute_log_growth_cv_difference':\n            def cv(series):\n                if len(series) < 3 or min(series) <= 0: raise ValueError('At least three positive levels required')\n                growth = [math.log(y/x) for x,y in zip(series,series[1:])]\n                mean = statistics.fmean(growth)\n                if mean == 0: raise ValueError('Zero mean log growth')\n                return statistics.pstdev(growth)/mean\n            value = abs(cv(a)-cv(b)); details['formula'] = 'abs(population_std(log_growth_a)/mean_a - population_std(log_growth_b)/mean_b)'\n        else: raise ValueError('Unknown paired statistic')\n    elif op == 'baseline_z':\n        if len(a) < 2: raise ValueError('At least two baseline observations required')\n        spread = statistics.stdev(a) if inputs['spread'] == 'sample' else statistics.pstdev(a)\n        if not spread: raise ValueError('Nonzero baseline spread required')\n        target = numbers([inputs['target']])[0]; z = (target-statistics.fmean(a))/spread\n        threshold = numbers([inputs['threshold']])[0]\n        if threshold <= 0: raise ValueError('Positive threshold required')\n        tested = abs(z) if inputs['two_sided'] else z\n        value = [z, 'unusual' if tested > threshold else 'normal']\n        details.update(formula='(target-baseline_mean)/baseline_sd', spread=inputs['spread'], target=target, two_sided=inputs['two_sided'], threshold=threshold)\n    else: raise ValueError('Unknown operation')\n    values = value if isinstance(value, list) else [value]\n    places = inputs['decimals']\n    if len(places) != sum(type(x) in (int,float) for x in values): raise ValueError('One decimals entry per numeric output field required')\n    numeric = iter(places)\n    fields = [display(x,next(numeric),inputs.get('fixed_decimals',False)) if type(x) in (int,float) else x for x in values]\n    answer = '['+', '.join(fields)+']' if isinstance(value,list) else fields[0]\n    if inputs.get('percent_suffix'):\n        if op != 'midpoint_submit' or not inputs['output_percent']: raise ValueError('Percent suffix requires percent-scaled scalar output')\n        answer += '%'\n    return {'answer':answer,'value':value,'calculation':details,\n        'evidence':inputs.get('operand_refs',[]),\n        'proof_scope':'Validates the declared arithmetic, scale and shared period mask; does not verify source-column semantics.'}\n\n\ndef run(ctx, inputs):\n    try:\n        if inputs['submit_answer'] is not True: raise ValueError('Explicit final submission required')\n        return {'status':'ok','outputs':calculate(inputs)}\n    except (KeyError, TypeError, ValueError, ArithmeticError) as error:\n        return {'status':'needs_input','outputs':{},'detail':str(error)}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "paired_statistics"
+            ]
+          },
+          "submit_answer": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 240
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decimals": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 12
+            },
+            "minItems": 1,
+            "maxItems": 3
+          },
+          "fixed_decimals": {
+            "type": "boolean"
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "other_values": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 240
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "maxItems": 240
+          },
+          "expected_periods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "maxItems": 240
+          },
+          "statistic": {
+            "type": "string",
+            "enum": [
+              "share_and_correlation",
+              "absolute_log_growth_cv_difference"
+            ]
+          }
+        },
+        "required": [
+          "operation",
+          "submit_answer",
+          "values",
+          "unit",
+          "decimals",
+          "other_values",
+          "periods",
+          "expected_periods",
+          "statistic"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value": {},
+          "calculation": {
+            "type": "object"
+          },
+          "evidence": {
+            "type": "array"
+          },
+          "proof_scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "value",
+          "calculation",
+          "evidence",
+          "proof_scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "id": "program_112113f924ded46367462b8dd78eaa9cc14de41c181e4aca1a8e9cf375a3d00e",
+      "operation": "paired_statistics"
+    },
+    {
+      "entry": "run",
+      "backend": "sandbox_python_v1",
+      "environment": {
+        "backend": "sandbox_python_v1",
+        "python": "3.12",
+        "dependencies": [
+          "openpyxl==3.1.5",
+          "pandas==2.3.3",
+          "pillow==11.3.0"
+        ],
+        "adapter_abi": "simple.v2",
+        "image_digest": "sha256:4db520e20cd121f830731c2d0c0bcfbe9cacd254d1817262404cc18e1e757783"
+      },
+      "result_role": "final_answer",
+      "entry_constraints": {
+        "description": "Caller binds actual source operands and explicit units; this calculator validates arithmetic, not source semantics."
+      },
+      "state": "candidate",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "permission": "author_trusted",
+      "origin": "human_edited_public_methods",
+      "title": "Use the estimated baseline spread for a new observation; explicit operands, validated formula, direct final submission",
+      "source_file": "programs/verified_math.py",
+      "source": "\"\"\"Small explicit calculations. Input selection remains the caller's responsibility.\"\"\"\nfrom decimal import Decimal, ROUND_HALF_UP, localcontext\nimport math\nimport statistics\n\n\ndef display(value, places, fixed=False):\n    if type(places) is not int or not 0 <= places <= 12: raise ValueError('decimals must be 0..12')\n    with localcontext() as precision:\n        precision.prec = 50\n        number = Decimal(str(value))\n        if not number.is_finite(): raise ValueError('Finite result required')\n        number = number.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)\n        if not number: number = abs(number)\n        answer = format(number, 'f')\n    return answer if fixed or '.' not in answer else answer.rstrip('0').rstrip('.')\n\n\ndef numbers(values):\n    if not isinstance(values, list) or not values or len(values) > 240: raise ValueError('Nonempty bounded numeric series required')\n    if any(type(x) not in (int, float) or not math.isfinite(x) for x in values): raise ValueError('Finite numeric operands required')\n    return values\n\n\ndef calculate(inputs):\n    op = inputs['operation']; a = numbers(inputs['values'])\n    details = {'operation': op, 'values': a, 'unit': inputs['unit']}\n    if not isinstance(inputs['unit'], str) or not inputs['unit'].strip(): raise ValueError('Source unit required')\n    if op in ('midpoint_submit', 'growth_submit'):\n        if len(a) != 2 or a[0] + a[1] == 0: raise ValueError('Two ordered endpoints with nonzero midpoint required')\n        midpoint = (a[1] - a[0]) / ((a[0] + a[1]) / 2)\n        if op == 'midpoint_submit':\n            value = abs(midpoint) if inputs['absolute'] else midpoint\n            if inputs['output_percent']: value *= 100\n            details['formula'] = '(end-start)/((start+end)/2)'\n        else:\n            if min(a) <= 0 or inputs['intervals'] <= 0: raise ValueError('Positive endpoints and elapsed intervals required')\n            factor = math.exp(math.log(a[1] / a[0]) / inputs['intervals'])\n            value = [factor - 1, factor, midpoint]\n            details['formula'] = '[exp(log(end/start)/intervals)-1, exp(log(end/start)/intervals), (end-start)/midpoint]'\n    elif op == 'paired_statistics':\n        b = numbers(inputs['other_values']); periods = inputs['periods']; expected = inputs['expected_periods']\n        if (len(a) != len(b) or len(a) != len(periods) or periods != expected or len(set(periods)) != len(periods)):\n            raise ValueError('Both series must match the same complete, unique requested period list')\n        details.update(other_values=b, periods=periods, statistic=inputs['statistic'])\n        if inputs['statistic'] == 'share_and_correlation':\n            da = [x - statistics.fmean(a) for x in a]; db = [x - statistics.fmean(b) for x in b]\n            denominator = math.sqrt(sum(x*x for x in da) * sum(x*x for x in db))\n            if not denominator or not sum(b): raise ValueError('Nonzero total and variation required')\n            value = [100 * sum(a)/sum(b), sum(x*y for x,y in zip(da,db))/denominator]\n            details['formula'] = '[100*sum(part)/sum(total), Pearson(part,total)] on identical periods'\n        elif inputs['statistic'] == 'absolute_log_growth_cv_difference':\n            def cv(series):\n                if len(series) < 3 or min(series) <= 0: raise ValueError('At least three positive levels required')\n                growth = [math.log(y/x) for x,y in zip(series,series[1:])]\n                mean = statistics.fmean(growth)\n                if mean == 0: raise ValueError('Zero mean log growth')\n                return statistics.pstdev(growth)/mean\n            value = abs(cv(a)-cv(b)); details['formula'] = 'abs(population_std(log_growth_a)/mean_a - population_std(log_growth_b)/mean_b)'\n        else: raise ValueError('Unknown paired statistic')\n    elif op == 'baseline_z':\n        if len(a) < 2: raise ValueError('At least two baseline observations required')\n        spread = statistics.stdev(a) if inputs['spread'] == 'sample' else statistics.pstdev(a)\n        if not spread: raise ValueError('Nonzero baseline spread required')\n        target = numbers([inputs['target']])[0]; z = (target-statistics.fmean(a))/spread\n        threshold = numbers([inputs['threshold']])[0]\n        if threshold <= 0: raise ValueError('Positive threshold required')\n        tested = abs(z) if inputs['two_sided'] else z\n        value = [z, 'unusual' if tested > threshold else 'normal']\n        details.update(formula='(target-baseline_mean)/baseline_sd', spread=inputs['spread'], target=target, two_sided=inputs['two_sided'], threshold=threshold)\n    else: raise ValueError('Unknown operation')\n    values = value if isinstance(value, list) else [value]\n    places = inputs['decimals']\n    if len(places) != sum(type(x) in (int,float) for x in values): raise ValueError('One decimals entry per numeric output field required')\n    numeric = iter(places)\n    fields = [display(x,next(numeric),inputs.get('fixed_decimals',False)) if type(x) in (int,float) else x for x in values]\n    answer = '['+', '.join(fields)+']' if isinstance(value,list) else fields[0]\n    if inputs.get('percent_suffix'):\n        if op != 'midpoint_submit' or not inputs['output_percent']: raise ValueError('Percent suffix requires percent-scaled scalar output')\n        answer += '%'\n    return {'answer':answer,'value':value,'calculation':details,\n        'evidence':inputs.get('operand_refs',[]),\n        'proof_scope':'Validates the declared arithmetic, scale and shared period mask; does not verify source-column semantics.'}\n\n\ndef run(ctx, inputs):\n    try:\n        if inputs['submit_answer'] is not True: raise ValueError('Explicit final submission required')\n        return {'status':'ok','outputs':calculate(inputs)}\n    except (KeyError, TypeError, ValueError, ArithmeticError) as error:\n        return {'status':'needs_input','outputs':{},'detail':str(error)}\n",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "baseline_z"
+            ]
+          },
+          "submit_answer": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 240
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decimals": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 12
+            },
+            "minItems": 1,
+            "maxItems": 3
+          },
+          "fixed_decimals": {
+            "type": "boolean"
+          },
+          "operand_refs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "spread": {
+            "type": "string",
+            "enum": [
+              "sample",
+              "population"
+            ]
+          },
+          "target": {
+            "type": "number"
+          },
+          "threshold": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "two_sided": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation",
+          "submit_answer",
+          "values",
+          "unit",
+          "decimals",
+          "spread",
+          "target",
+          "threshold",
+          "two_sided"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value": {},
+          "calculation": {
+            "type": "object"
+          },
+          "evidence": {
+            "type": "array"
+          },
+          "proof_scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "value",
+          "calculation",
+          "evidence",
+          "proof_scope"
+        ],
+        "additionalProperties": false
+      },
+      "allowed_tools": [],
+      "id": "program_70f9f6fb6695a0f3a31cb4462cd6ef92c199b48b746a5db1e6b40b8d9c4af3ab",
+      "operation": "baseline_z"
+    }
+  ],
+  "implementation": [
+    {
+      "kind": "implementation",
+      "skill_id": "skill_d90e98a42e3a6bcfb78f21c778f96bd3a125f448a73229f492668e78f1d88878",
+      "program_id": "program_bf9f7b12637ff329ab18cbb01a00c611081d71e91791b922b8d62864bc3f987e",
+      "goal": "Submit the chosen result without changing its meaning",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "implementation_5d7395a694b6f2fcb620df8c9eb043efba5733ab1f4d13d3ec6b1600d3f19a0b"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_9cbfb086ab5f5465e298072e54b381f83f110610474b0429bdfb3896f2f81930",
+      "program_id": "program_46036e349d3dff45583ec5701ecf9678b452759ddb168ec0d8c77445e07be344",
+      "goal": "Submit a dimensionless midpoint-normalized difference",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "implementation_60cb27afab338359c292d653a904ed73d571a0f82944014438695344540512fe"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_13371875cb6a3fb32492994e1350680c6d7d943f90f1255f5c47f2dad1baf505",
+      "program_id": "program_4af1325d174da7ea881156fd766336002a04346463a4d95851d353566259f641",
+      "goal": "Keep CAGR, growth factor and endpoint midpoint change distinct",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "implementation_fa0eb9adbec46a23fc5ad4cd15629f5ac0f538adc98db8f4525caa7cd6e3e6f4"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_f09bb55ce7379794f43b59a0ef7182a33b6e9bd926e497efe84c67ad7afc4615",
+      "program_id": "program_112113f924ded46367462b8dd78eaa9cc14de41c181e4aca1a8e9cf375a3d00e",
+      "goal": "Use one period mask and one measure for all paired statistics",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "implementation_d31651dcab2e6eb293a87a82f125bc3a57c80ea2078e8e75d368543f8052db86"
+    },
+    {
+      "kind": "implementation",
+      "skill_id": "skill_f84c5b8b8aed85da1b964c42a5dd022ff116f39f563a746388b690afc064a69d",
+      "program_id": "program_70f9f6fb6695a0f3a31cb4462cd6ef92c199b48b746a5db1e6b40b8d9c4af3ab",
+      "goal": "Use the estimated baseline spread for a new observation",
+      "origin": "human_authored",
+      "permission": "author_trusted",
+      "method_version": "office.humanstrong.operation-bound.v15.20261024",
+      "id": "implementation_0bddc8ccd7f424113c5767e20992d2a4310a0781eeb0a644780e58bd67856f05"
+    }
+  ],
+  "workflow": [],
+  "parent_bank_digest": "9f11d07936223ae926c5e3aef993f5a7c82b8753a7df3b745f8ee24029d771b2",
+  "profiles": {
+    "manual": "Short operation/fact AtomicSkills plus optional scalar submission",
+    "off": "No Bank assets"
+  }
+}

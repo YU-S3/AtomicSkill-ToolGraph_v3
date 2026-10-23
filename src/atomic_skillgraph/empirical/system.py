@@ -36,8 +36,8 @@ def validate_config(config):
     if config.get("mechanism_profile") != PROFILE:
         raise ValueError("Empirical System requires its explicit profile")
     config = deepcopy(config)
-    from .final_submission import VERSION as FINAL_SUBMISSION
-    if config.get('runtime', {}).get('final_submission_version') not in (None, FINAL_SUBMISSION):
+    from .final_submission import VERSION as FINAL_SUBMISSION, LIST_VERSION
+    if config.get('runtime', {}).get('final_submission_version') not in (None, FINAL_SUBMISSION, LIST_VERSION):
         raise ValueError('Unknown final submission protocol')
     if config.get('experiment', {}).get('office_effect_version'):
         from .office_effect_runtime import validate_runtime
@@ -147,6 +147,11 @@ def validate_config(config):
         # An expanded finish gets its own task-budget increment; it must not
         # displace the previously admitted solving capacity.
         expected_eval_tokens=192000+(24576 if span_handoff and finish_cap==32768 else 0)
+        if config['runtime'].get('final_submission_version') == LIST_VERSION:
+            configured_cap = config.get('budget', {}).get('eval_task_tokens')
+            if type(configured_cap) is not int or configured_cap < expected_eval_tokens:
+                raise ValueError('Final submission V2 cannot reduce the frozen evaluation allowance')
+            expected_eval_tokens = configured_cap
         if (config['runtime'].get('finish_input_max_bytes')!=(65536 if span_handoff else 16384) or config['runtime'].get('dynamic_output_min_tokens')!=8192
                 or config['runtime'].get('global_action_budget')!=expected_calls
                 or config.get('budget',{}).get('eval_task_tokens')!=expected_eval_tokens
@@ -499,7 +504,9 @@ class EmpiricalSystem:
             name, schema = ('finish_answer', final_submission.SCHEMA) if explicit_final else (None, None)
             prompt = final_submission.prompt(prompt, self.config['runtime'])
         elif explicit_final and name == 'runtime_step':
-            prompt += '\nA complete bare numeric answer with no ToolCalls is an alternative final submission; it ends the task unchanged. Use runtime_step.finish for other answer forms.'
+            text_form = ('numeric answer or flat bracketed answer list' if
+                self.config['runtime'].get('final_submission_version') == final_submission.LIST_VERSION else 'numeric answer')
+            prompt += '\nA complete bare '+text_form+' with no ToolCalls is an alternative final submission; it ends the task unchanged. Use runtime_step.finish for other answer forms.'
         original_purpose=purpose
         tools = (final_submission.tools(self.config['runtime']) if purpose=='finish_only' and explicit_final
                  else [NativeToolSpec(name, "Submit the requested result", schema)] if name else [])
@@ -615,6 +622,14 @@ class EmpiricalSystem:
                                 {'role':'user','content':[{'type':'text','text':json.dumps(finish_material,ensure_ascii=False)},
                                     *materials.get('content_parts',[])]}]
                             finish_reserve=provider.input_token_bound({'messages':finish_messages})+finish_cap
+            if preserve_finish and self.config['runtime'].get('final_submission_version') == final_submission.LIST_VERSION:
+                from .budget_governor import output_token_bound
+                finish_provider = self.provider('runtime', 'finish_only')
+                if isinstance(finish_provider, OpenAICompatibleProvider):
+                    finish_wire = finish_provider._build_payload(messages, final_submission.tools(self.config['runtime']))
+                    # Some configured transports budget reasoning separately from the body.
+                    body_cap = finish_wire[finish_provider.config.token_limit_field]
+                    finish_reserve += output_token_bound(finish_wire) - body_cap
             payload_max=None
             if stage in {'extractor','tool_builder'}:
                 key='structural_repair_payload_max_bytes' if purpose=='learning_structure_repair' else 'builder_payload_max_bytes' if stage=='tool_builder' else 'extractor_payload_max_bytes'
@@ -685,6 +700,9 @@ class EmpiricalSystem:
                 field = provider.config.token_limit_field if isinstance(provider,OpenAICompatibleProvider) else 'max_tokens'
                 wire[field] = completion_cap
                 remaining = self._remaining(stage,purpose,finish_reserve=finish_reserve)
+                if self.config['runtime'].get('final_submission_version') == final_submission.LIST_VERSION:
+                    from .budget_governor import output_token_bound
+                    remaining -= output_token_bound(wire) - completion_cap
                 from .evidence_handoff import enabled as evidence_handoff_enabled
                 if (evidence_handoff_enabled(self.config['runtime']) and self.adapter.capabilities.interaction!='single_answer'
                         and input_token_bound(wire)+completion_cap>remaining):
@@ -939,13 +957,14 @@ class EmpiricalSystem:
                 if name == 'answer_step' and not turn.tool_calls:
                     return accepted({'action':'finish','answer':turn.content or ''},repair)
                 if explicit_final and name == 'runtime_step':
-                    scalar = final_submission.scalar_answer(turn)
+                    scalar = final_submission.plain_answer(turn, self.config['runtime'])
                     if scalar is not None:
                         action = {'action':'finish','answer':scalar}
                         validate_schema_instance(action, schema)
                         if validator: validator(action)
-                        record['normalized_response'] = {'version':final_submission.VERSION,
-                            'kind':'whole_scalar_final_text','arguments':action,'raw_content_preserved':True}
+                        record['normalized_response'] = {'version':self.config['runtime']['final_submission_version'],
+                            'kind':'whole_list_final_text' if scalar.startswith('[') else 'whole_scalar_final_text',
+                            'arguments':action,'raw_content_preserved':True}
                         self._save_requests()
                         return accepted(RuntimeDecision((action,), (request_id + ':text_final',), request_id), repair)
                 if explicit_final and purpose == 'finish_only':
@@ -955,9 +974,11 @@ class EmpiricalSystem:
                         answer = turn.tool_calls[0].arguments['answer']
                         if not answer.strip(): raise ValueError('Empty final submission')
                         return accepted(answer, repair)
-                    scalar = final_submission.scalar_answer(turn)
+                    scalar = final_submission.plain_answer(turn, self.config['runtime'])
                     if scalar is not None: return accepted(scalar, repair)
-                    raise ValueError('Expected finish_answer or a complete bare numeric answer')
+                    allowed = ('numeric answer or flat bracketed answer list' if
+                        self.config['runtime'].get('final_submission_version') == final_submission.LIST_VERSION else 'numeric answer')
+                    raise ValueError('Expected finish_answer or a complete bare '+allowed)
                 if not name:
                     if purpose == 'finish_only':
                         if turn.tool_calls:
