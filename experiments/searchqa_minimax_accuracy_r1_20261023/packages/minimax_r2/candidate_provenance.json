@@ -1,0 +1,17 @@
+{
+  "version": "human.searchqa.minimax.r2.20261023",
+  "parent_bundle_sha256": "dfd81bc03108ee26d243080812b4c4aeb920196aa9ed88b1d3b19e1c42a76dd2",
+  "parent_integration_sha256": "06e949d143678d750bc7ce4186dad3710b13546719e99a26baef176f24a7c896",
+  "restored_rule": "For a title or quotation with its beginning or ending already supplied, return EXACTLY the missing span, not the full work, its author, performer or plot. Substitute the span back into the given words once. Preserve necessary words inside the blank, including pronouns; do not add words outside it. If a complete title itself is requested, retain its necessary words instead. A title plus year with no blank remains a relation-inference task, not automatically a director question.",
+  "changes": [
+    "Explicit Jeopardy genre cue",
+    "Restore V7 missing-title-span constraint",
+    "Repeat unchanged clue after complete context"
+  ],
+  "new_facts_added": false,
+  "model_parameters_changed": false,
+  "normal_model_calls": 1,
+  "author_trusted_not_learned": true,
+  "post_test_development": true,
+  "gold_runtime_input": false
+}

@@ -26,3 +26,11 @@ WSL 只读监控：
 运行目录：`/home/yangchengyu/searchqa_minimax_accuracy_r1_20261023`。`STOP_AFTER_TASK` 文件可请求任务边界暂停。只读统计 `analyze.py` 的输出严格使用两边均完成的同题集合。
 
 事实卡片来源：[美国内政部](https://www.doi.gov/bureaus)、[参议院副总统历史表](https://www.senate.gov/about/officers-staff/vice-president/vice-presidents.htm)、[参议院宪法说明](https://www.senate.gov/artandhistory/history/common/briefing/Constitution_Senate.htm)。来源、查阅日期与适用关系随 Bank 冻结，模型可使用这些事实，但必须服从题目实际询问方向和年代。
+
+## 独立 R2 后续候选
+
+R1运行期间核对发现：改写弱化了V7原有的明确标题缺词约束。独立 `packages/minimax_r2` 补回该规则，增加Jeopardy题型说明，并在完整公开context后重复原题，防止题目目标被材料淹没。没有修改运行中的R1，也没有改变模型参数、事实卡片或submit Program。`r2_offline_acceptance.json` 验证真实模型payload、完整context、原生图/Program和完成resume；零真实HTTP。
+
+`run_revision2.py` 等待paired128完成并打包R1材料，再检查原累计8M额度的剩余额度。只有至少400K可准入时才准备独立 `followup96`；否则保存未启动原因。96题由seed20261024从原128题均匀抽样，未按结果筛选；参考对照是此前同题的V7/R1记录，属于顺序实验，不能冒充新同时对照。R2新请求上限110，原累计3000 HTTP/8M tokens上限均不提高。R2只有旧Bank的背景事实，没有新增Train/Test事实记忆。
+
+R2运行目录：`/home/yangchengyu/searchqa_minimax_accuracy_r2_20261023`。结束后写 `r2_results.json`、`R1_R2后续审查报告.md` 和包含两轮原始证据的审查包；原R1报告与包保留。两轮均不自动开完整Test1400，也不自动替换既有V7。

@@ -17,6 +17,10 @@ def metric(rows):
         'f1':sum(v['score']['soft'] for v in vals)/len(vals) if vals else None,
         'tokens':sum(u['total_tokens'] for v in vals for u in v['usage']),
         'http':sum(len(q.get('http_attempts',[])) for v in vals for q in v['requests']),
+        'native_graphs_completed':sum(bool(v['execution'].get('all_authored_nodes_completed')) for v in vals),
+        'finish_only_tasks':sum(v['execution']['reason']=='finish_only' for v in vals),
+        'truncated_requests':sum(bool(q.get('completion_truncated')) for v in vals for q in v['requests']),
+        'empty_requests':sum(bool(q.get('empty_answer')) for v in vals for q in v['requests']),
         'program_calls':sum(len(v['execution'].get('attempts',[])) for v in vals),
         'program_errors':sum(a['status']!='ok' for v in vals for a in v['execution'].get('attempts',[]))}
 

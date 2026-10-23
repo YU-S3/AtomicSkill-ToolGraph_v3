@@ -1,0 +1,11 @@
+{
+  "tasks": "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/tasks96_public.json",
+  "base_config": "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/base_config.json",
+  "arms": {
+    "r2": {
+      "kind": "native",
+      "package": "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/packages/minimax_r2"
+    }
+  },
+  "purpose": "Fixed uniform 96 of the original uniform128, seed20261024. R2 follow-up development; compare with the exact prior V7/R1 rows, not simultaneous fresh controls. Same full public input/model/scorer. No automatic full Test1400."
+}

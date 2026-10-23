@@ -54,7 +54,7 @@ submit只处理HTML实体、弯引号/破折号、严格数量问法下的小数
 
 128题在canonical1400中用seed20261023均匀抽样、未按正确率筛选，并保留canonical顺序。两臂逐题轮转、MiniMax-M3 adaptive thinking、stream、65536 cap、每题128K和公开context一致。generation seed不支持。完整题单和plan已在付费前冻结；执行中未改Bank或源码。
 
-实际源码28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9，两臂一致。它相对之前MiniMax源码增加了独立Gemini适配和缓存恢复审计补丁，MiniMax请求参数在离线测试中核对。零HTTP测试覆盖原生编译、Docker执行、输出消费、公开输入/模型payload、完成resume、Docker中断缓存续跑和传输失败停止。实际两臂共256题均完成；Program错误数为{sum(v['program_errors'] for v in stats.values())}，Frozen前后hash未变。
+实际源码28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9，两臂一致。它相对之前MiniMax源码增加了独立Gemini适配和缓存恢复审计补丁，MiniMax请求参数在离线测试中核对。零HTTP测试覆盖原生编译、Docker执行、输出消费、公开输入/模型payload、完成resume、Docker中断缓存续跑和传输失败停止。实际两臂共256题均计分。原生Workflow完整完成数：V7 {stats['v7']['native_graphs_completed']}/128，R1 {stats['r1']['native_graphs_completed']}/128；finish-only收尾题数：V7 {stats['v7']['finish_only_tasks']}，R1 {stats['r1']['finish_only_tasks']}；截断请求：V7 {stats['v7']['truncated_requests']}，R1 {stats['r1']['truncated_requests']}。这些普通模型失败保留原评分和全部费用，不能算作Program成功。实际Program错误数为{sum(v['program_errors'] for v in stats.values())}，Frozen前后hash未变。
 
 本轮实际新增 {result['measured_new_tokens']:,} tokens / {result['new_physical_http']} HTTP，全部计量。原154,912 tokens未知预留原样保留。未提高原8M累计token额度；剩余可准入 {result['remaining_token_admission']:,} tokens。预算文件包含历史物理成本，不能把它全部当作本轮成本。
 
