@@ -21,7 +21,7 @@
   "guidance/solve.txt": "a09155cfb0118fb520f12b7733e85e00bd2453f0edb6d2bfbc1a9d8347ebcd95",
   "guidance/surface.txt": "d7f630c997a910afe0cce5d58d9d7712b20dc502f0a8f5ad8ffe68b0ba85b8f0",
   "infrastructure_guard.py": "39a6e36463d6dad832bbe5c9a5c6c43429934d0d3c321d50bb225bf6b644cd3a",
-  "monitor.py": "64819bf098498b3531962da61b8cea9400578e2fd706a0235bd266a840042296",
+  "monitor.py": "8431da204e28b3781370bd8fbcd0d96191c6ac049fafc9e58720056f86b69168",
   "offline_acceptance.json": "5fe14feecdc740e87a831162c7138b5856dfe479bb75e0a86bcf127262b0b956",
   "packages/minimax_r1/FILE_SHA256.json": "b4e428a45748e017c866afce3b6da85e520b8d1a541201308889bc3d77c5d92d",
   "packages/minimax_r1/README.md": "a3e8e25041b39a467cdcedca93c8e40111f0fae94a1e79cf9809bb2c2e202a88",
