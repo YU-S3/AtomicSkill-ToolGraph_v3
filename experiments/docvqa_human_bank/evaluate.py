@@ -24,9 +24,9 @@ def main():
                         help='Single-node crop submission: raw result IDs or supplied image handles')
     parser.add_argument('--submission-contract', choices=['legacy', 'single_tool', 'direct_submit'], default='legacy',
                         help='Typed submission: one tool answer instead of simultaneous XML and tool instructions')
-    parser.add_argument('--skill-revision', choices=['v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13'], default='v6',
+    parser.add_argument('--skill-revision', choices=['v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13', 'v14'], default='v6',
                         help='Manual single-node Skill to import into a fresh Bank')
-    parser.add_argument('--principles', default='', help='Comma-separated v8/v10/v11/v12/v13 rule IDs; empty selects only the core')
+    parser.add_argument('--principles', default='', help='Comma-separated v8/v10/v11/v12/v13/v14 rule IDs; empty selects only the core')
     parser.add_argument('--task-token-limit', type=int, default=96000,
                         help='Explicit approved per-task token ceiling; defaults to the original 96000')
     parser.add_argument('--resume', action='store_true')
@@ -42,10 +42,10 @@ def main():
         parser.error('--evidence-interface requires --single-node-crop')
     if args.skill_revision != 'v6' and (not args.single_node or args.bank):
         parser.error('--skill-revision selects a fresh single-node Bank; omit --bank')
-    if args.principles and (args.skill_revision not in ('v8', 'v10', 'v11', 'v12', 'v13') or args.bank):
-        parser.error('--principles requires a fresh v8/v10/v11/v12/v13 Bank')
-    if args.skill_revision in ('v9', 'v10', 'v11', 'v12', 'v13') and args.evidence_interface != 'typed':
-        parser.error('v9/v10/v11/v12/v13 requires --evidence-interface typed')
+    if args.principles and (args.skill_revision not in ('v8', 'v10', 'v11', 'v12', 'v13', 'v14') or args.bank):
+        parser.error('--principles requires a fresh v8/v10/v11/v12/v13/v14 Bank')
+    if args.skill_revision in ('v9', 'v10', 'v11', 'v12', 'v13', 'v14') and args.evidence_interface != 'typed':
+        parser.error('v9/v10/v11/v12/v13/v14 requires --evidence-interface typed')
     if args.submission_contract != 'legacy' and args.evidence_interface != 'typed':
         parser.error('--submission-contract requires --evidence-interface typed')
     if args.submission_contract == 'direct_submit' and args.single_node_crop:
@@ -132,11 +132,11 @@ def main():
         if manual['method_version']!=METHOD:raise ValueError('Bank/view version differs')
         if args.single_node:
             config['experiment']['docvqa_human_reference']['skill_revision'] = manual.get('skill_revision', 'v6')
-            if (manual.get('skill_revision') in ('v9', 'v10', 'v11', 'v12', 'v13')) != (args.evidence_interface == 'typed'):
+            if (manual.get('skill_revision') in ('v9', 'v10', 'v11', 'v12', 'v13', 'v14')) != (args.evidence_interface == 'typed'):
                 raise ValueError('Typed submission and matching Bank must be selected together')
             if manual.get('typed_submission'):
                 config['experiment']['docvqa_human_reference']['programs'] = 'typed_final_answer_and_optional_crop'
-            if manual.get('skill_revision') in ('v8', 'v10', 'v11', 'v12', 'v13'):
+            if manual.get('skill_revision') in ('v8', 'v10', 'v11', 'v12', 'v13', 'v14'):
                 config['experiment']['docvqa_human_reference']['principle_ids'] = manual['principle_ids']
         if args.single_node and manual['program_status']!=('optional_image_crop' if args.single_node_crop else 'disabled'):
             raise ValueError('Requested crop mode differs from the frozen Bank')

@@ -445,11 +445,12 @@ def test_single_tool_keeps_one_selected_answer(imported, tmp_path, monkeypatch, 
     ('How many participants are reported?', 'count', 'more than 18', 'more than 18'),
     ('What is the account identifier?', 'verbatim', 'N=18', 'N=18'),
 ])
-def test_skill_declared_submission_kind_is_scoped(imported, tmp_path, monkeypatch, question, kind, value, expected):
+@pytest.mark.parametrize('revision,principle', [('v13', 'count_bound'), ('v14', 'bounded_count')])
+def test_skill_declared_submission_kind_is_scoped(imported, tmp_path, monkeypatch, question, kind, value, expected, revision, principle):
     c, _ = imported
     c['data_dir'] = str(tmp_path / 'v13_bank')
     config = tmp_path / 'v13_config.json'; config.write_text(json.dumps(c))
-    prepare_single(ROOT, config, c['data_dir'], skill_revision='v13', principle_ids=['count_bound'])
+    prepare_single(ROOT, config, c['data_dir'], skill_revision=revision, principle_ids=[principle])
     manifest = json.loads((Path(c['data_dir']) / 'manual_manifest.json').read_text())
     adapter = AnswerAdapter('docvqa', {'docvqa:fixture': {'answers': [expected]}}, c)
     system = EmpiricalSystem(c, harness=adapter, readonly=True,

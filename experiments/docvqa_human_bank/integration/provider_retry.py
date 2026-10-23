@@ -17,9 +17,13 @@ STATUSES = {408, 429, 500, 502, 503, 504, 529}
 
 
 def validate_policy(policy):
+    cap = policy.get('per_attempt_task_tokens')
+    scope = policy.get('retry_scope', 'task_id')
     if (policy.get('version') != VERSION or not policy.get('authorization')
             or policy.get('max_retries_per_task') != 3 or policy.get('backoff_seconds') != DELAYS
-            or policy.get('per_attempt_task_tokens') != 96000):
+            or type(cap) is not int or cap not in (96000, 400000)
+            or scope not in ('task_id', 'parent_scope')
+            or (cap == 400000 and scope != 'parent_scope')):
         raise ValueError('Expected explicit frozen inference retry policy')
 
 
@@ -45,9 +49,16 @@ class RetryGovernor(BudgetGovernor):
             raise ValueError('Frozen retry policy changed')
         save_json(self.path, self.state)
 
+    def retry_key(self, context):
+        if self.policy.get('retry_scope') == 'parent_scope':
+            if not context.get('parent_scope') or not context.get('parent_task_id'):
+                raise ValueError('Repeated evaluations require an explicit task/run scope')
+            return digest([context['parent_scope'], context['parent_task_id']])
+        return context.get('parent_task_id')
+
     def _context(self, context):
         adjusted = dict(context)
-        entry = self.state.get('inference_retries', {}).get(context.get('parent_task_id'), {})
+        entry = self.state.get('inference_retries', {}).get(self.retry_key(context), {})
         failed = [self.state['attempts'][key] for key in entry.get('failures', [])]
         # The extra allowance pays only recorded transient failures. It never
         # changes generation caps, ordinary task spending, or the global ceiling.
@@ -64,7 +75,7 @@ class RetryGovernor(BudgetGovernor):
         return super().headroom(self._context(context))
 
     def admit(self, audit_id, payload, context):
-        entry = self.state.get('inference_retries', {}).get(context.get('parent_task_id'), {})
+        entry = self.state.get('inference_retries', {}).get(self.retry_key(context), {})
         if entry.get('pending'):
             if len(entry['failures']) > self.policy['max_retries_per_task']:
                 raise AgentProviderError('provider_retry_exhausted', 'Task retry allowance exhausted')
@@ -76,7 +87,7 @@ class RetryGovernor(BudgetGovernor):
         with self.lock:
             key = attempt['request_id']
             row = self.state['attempts'][key]
-            task = row['context']['parent_task_id']
+            task = self.retry_key(row['context'])
             if row['status'] not in {'metered', 'unknown_billing'} or row['outcome'] != 'error':
                 raise ValueError('Only a finished failed HTTP attempt can be retained')
             if row.get('accounted_tokens', row['reserved_tokens']) > self.policy['per_attempt_task_tokens']:
@@ -98,7 +109,7 @@ class RetryGovernor(BudgetGovernor):
     def complete(self, record):
         super().complete(record)
         if record['outcome'] == 'success':
-            task = self.state['attempts'][record['request_id']]['context'].get('parent_task_id')
+            task = self.retry_key(self.state['attempts'][record['request_id']]['context'])
             entry = self.state.get('inference_retries', {}).get(task)
             if entry:
                 entry.update(pending=False, successful_attempt=record['request_id'])
@@ -115,7 +126,7 @@ def retry_guard(governor, directory, stop_requested=lambda: False):
         if provider.config.max_retries != 0:
             raise ValueError('Do not stack provider and durable retry loops')
         context = deepcopy(getattr(provider._request_context, 'value', {}))
-        task = context.get('parent_task_id')
+        task = governor.retry_key(context)
         if not task or context.get('train_parent') or context.get('purpose') not in {'runtime', 'finish_only'}:
             raise ValueError('Retry policy is limited to frozen runtime inference')
         try:

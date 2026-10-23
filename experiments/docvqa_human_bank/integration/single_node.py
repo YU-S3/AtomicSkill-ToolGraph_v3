@@ -35,7 +35,7 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
     from atomic_skillgraph.empirical.contracts import digest, program_digest
     config = json.loads(Path(config_path).read_text())
     sources = {'v6': 'single_node.json', 'v7': 'single_node_v7.json'}
-    if skill_revision in ('v10', 'v11', 'v12', 'v13'):
+    if skill_revision in ('v10', 'v11', 'v12', 'v13', 'v14'):
         from rule_search import skills
         source = skills(principle_ids, revision=skill_revision)
     elif skill_revision == 'v9':
@@ -56,7 +56,7 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
     output.mkdir(parents=True)
     bank = Bank(output, seed=42, environment=config['program_environment'])
     try:
-        assets = [bank.put('skill', item) for item in (source if skill_revision in ('v9', 'v10', 'v11', 'v12', 'v13') else [source])]
+        assets = [bank.put('skill', item) for item in (source if skill_revision in ('v9', 'v10', 'v11', 'v12', 'v13', 'v14') else [source])]
         asset = assets[0]
         if crop:
             bundle = json.loads((ROOT / 'bank/bank.json').read_text())
@@ -67,7 +67,7 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
             program = bank.put('program', program)
             bank.put('implementation', {'skill_id': asset['id'], 'program_id': program['id'],
                 'method_version': METHOD, 'origin': 'human_authored_unqualified'})
-        if skill_revision in ('v9', 'v10', 'v11', 'v12', 'v13'):
+        if skill_revision in ('v9', 'v10', 'v11', 'v12', 'v13', 'v14'):
             from typed_answer import program as typed_program
             formatter = bank.put('program', typed_program(config['program_environment'], METHOD,
                 percentage=skill_revision == 'v11' and 'percent_render' in principle_ids))
@@ -78,9 +78,9 @@ def prepare(repo, config_path, destination, *, crop=False, skill_revision='v6', 
             'counts': {k: len(bank.all(k)) for k in ('skill', 'program', 'implementation', 'workflow')},
             'program_status': 'optional_image_crop' if crop else 'disabled', 'seed': 42,
             'skill_revision': skill_revision}
-        if skill_revision in ('v9', 'v10', 'v11', 'v12', 'v13'):
+        if skill_revision in ('v9', 'v10', 'v11', 'v12', 'v13', 'v14'):
             manifest.update(typed_submission=True, routing='public_intent_first_match.v1')
-        if skill_revision in ('v10', 'v11', 'v12', 'v13'):
+        if skill_revision in ('v10', 'v11', 'v12', 'v13', 'v14'):
             manifest['principle_ids'] = [a['principle_id'] for a in assets if a['principle_id'] != 'core']
             if skill_revision == 'v11':
                 manifest['percentage_submission'] = 'percent_render' in principle_ids
@@ -104,7 +104,7 @@ class SingleNodeDocVQAView:
         self.formatter_name = 'typed_submit_percent' if self.percentage_enabled else 'typed_submit'
         count = int(self.crop_enabled) + int(self.formatter_enabled)
         expected = {'skill': 4 if self.formatter_enabled else 1, 'program': count, 'implementation': count, 'workflow': 0}
-        if manifest.get('skill_revision') in ('v10', 'v11', 'v12', 'v13'):
+        if manifest.get('skill_revision') in ('v10', 'v11', 'v12', 'v13', 'v14'):
             expected['skill'] = 1 + len(manifest['principle_ids'])
             if sorted(a['principle_id'] for a in bank.all('skill')) != sorted(['core'] + manifest['principle_ids']):
                 raise ValueError('Frozen rule variants differ from the manifest')
@@ -114,7 +114,7 @@ class SingleNodeDocVQAView:
             raise ValueError('Manual Bank content does not match its frozen view')
         self.bank = bank
         self.programs = {Path(p['source_file']).stem: p for p in bank.all('program')}
-        if self.formatter_enabled != (manifest.get('skill_revision') in ('v9', 'v10', 'v11', 'v12', 'v13')):
+        if self.formatter_enabled != (manifest.get('skill_revision') in ('v9', 'v10', 'v11', 'v12', 'v13', 'v14')):
             raise ValueError('Typed submission requires a matching Bank')
         self.view_hash = digest([METHOD, manifest,
             'public_intent_typed_submission.v9' if self.formatter_enabled else 'one_skill_optional_image_crop'])
