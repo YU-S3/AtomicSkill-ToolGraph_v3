@@ -1,0 +1,37 @@
+{
+  "passed": true,
+  "real_http": 0,
+  "checks": [
+    {
+      "mode": "normal",
+      "passed": true,
+      "intercepted_http": 2,
+      "root": "/home/yangchengyu/minimax_docker_replacement_normal_n7u3q340"
+    },
+    {
+      "mode": "docker_after_response",
+      "passed": true,
+      "intercepted_http": 2,
+      "root": "/home/yangchengyu/minimax_docker_replacement_docker_after_response_i0_wk0ld"
+    },
+    {
+      "mode": "docker_before_response",
+      "passed": true,
+      "intercepted_http": 2,
+      "root": "/home/yangchengyu/minimax_docker_replacement_docker_before_response_9t5kpvp1"
+    }
+  ],
+  "source": {
+    "git_sha": "5ff29b0a785642aa5ba54918843ebcdc586afae0",
+    "tracked_dirty": false,
+    "source_sha256": "52c3e294dbc76ab1548cf14b152c757c7c5aa4c92b19e12a858059cb94c0e295"
+  },
+  "driver_sha256": "391d26685703c3824c5599d174908181933030f3bab38080a78630e3b6e6e86a",
+  "launcher_sha256": "8fbe76334fa327d964059ff993e6d72627efaa2b0aaba8716b6e86c7e1dc9482",
+  "guard_sha256": "39a6e36463d6dad832bbe5c9a5c6c43429934d0d3c321d50bb225bf6b644cd3a",
+  "test_sha256": "9d77582de2284028b5a3cec1d21991433ddba5cb1963d2730a08c1aac04a27e7",
+  "exact200_replacement_and_cost_exclusion": true,
+  "ordinary_model_errors_not_reclassified": true,
+  "docker_failure_stops_before_repair_and_score": true,
+  "cached_solve_resume_adds_no_duplicate_model_call": true
+}

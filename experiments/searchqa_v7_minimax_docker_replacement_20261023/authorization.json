@@ -1,0 +1,11 @@
+{
+  "status": "approved",
+  "at": "2026-10-23T05:56:55.307209+00:00",
+  "user": "用户要求：旧成本不计，重跑Docker故障的200题；此前已授权完成MiniMax完整Test1400。",
+  "limits": {
+    "token_limit": 8000000,
+    "request_limit": 3000,
+    "finish_reserve": 0
+  },
+  "scope": "Replace fixed 200; finish remaining 303; no automatic additional retries."
+}

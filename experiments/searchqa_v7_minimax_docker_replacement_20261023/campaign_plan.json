@@ -1,0 +1,15 @@
+{
+  "source": {
+    "git_sha": "5ff29b0a785642aa5ba54918843ebcdc586afae0",
+    "tracked_dirty": false,
+    "source_sha256": "52c3e294dbc76ab1548cf14b152c757c7c5aa4c92b19e12a858059cb94c0e295"
+  },
+  "authorization": "用户要求：旧成本不计，重跑Docker故障的200题；此前已授权完成MiniMax完整Test1400。",
+  "guard_version": "docker-availability-stop.v1",
+  "method_bank_model_unchanged": true,
+  "cumulative_limits": {
+    "token_limit": 8000000,
+    "request_limit": 3000,
+    "finish_reserve": 0
+  }
+}

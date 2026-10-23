@@ -1,0 +1,11 @@
+{
+  "pid": 30949,
+  "at": "2026-10-23T05:57:07.203720+00:00",
+  "command": [
+    "/home/yangchengyu/asg_alfworld_venv/bin/python",
+    "-B",
+    "-u",
+    "/mnt/d/T3S_exp/deliveries/searchqa_v7_minimax_docker_replacement_20261023/run_replacement.py",
+    "run"
+  ]
+}
