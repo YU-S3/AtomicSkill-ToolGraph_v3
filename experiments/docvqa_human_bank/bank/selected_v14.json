@@ -1,0 +1,76 @@
+{
+  "version": "docvqa.manual.selected.v14",
+  "origin": "human_authored_test_development_not_natural_learning",
+  "paid_source_commit": "6cf6497e8f893881651409df0469a5f59b138780",
+  "interface": {
+    "single_node": true,
+    "guidance_role": "system",
+    "evidence_interface": "typed",
+    "submission_contract": "direct_submit",
+    "crop": false
+  },
+  "models": {
+    "MiniMax-M3": {
+      "skill_revision": "v14",
+      "principle_ids": [
+        "phone_raw",
+        "whole_curve",
+        "filled_amount",
+        "visible_currency",
+        "complete_category",
+        "entity_name",
+        "literal_copy",
+        "boundary_column"
+      ],
+      "bank_sha256": "e7bcf22043fd0495d5fc9e42f62d3c5c56b6f4ad68c4f8f4230513832058e620",
+      "task_token_limit": 96000,
+      "target_correct": 185,
+      "correct_out_of_201": [
+        194,
+        186
+      ],
+      "anls": [
+        0.9855590468709087,
+        0.9561258904981469
+      ],
+      "both_correct": 185,
+      "correctness_flips": 10,
+      "accuracy_target_pass": true,
+      "protection_gate_pass": true,
+      "guidance_limit": "core plus at most one public-intent rule",
+      "stability_note": "Two observed repetitions; retain all regressions and flips. No claim that future runs cannot regress."
+    },
+    "qwen3.8-flash": {
+      "skill_revision": "v14",
+      "principle_ids": [
+        "phone_raw",
+        "bounded_count",
+        "whole_curve",
+        "comparison_measure",
+        "filled_amount",
+        "description_cell",
+        "complete_category",
+        "entity_name",
+        "literal_copy",
+        "boundary_column"
+      ],
+      "bank_sha256": "31fce703ae0de07ca15670c4bb87556b129d81e9183e60109e23d08c76f024d9",
+      "task_token_limit": 400000,
+      "target_correct": 191,
+      "correct_out_of_201": [
+        193,
+        193
+      ],
+      "anls": [
+        0.97842486911846,
+        0.9781124216937478
+      ],
+      "both_correct": 191,
+      "correctness_flips": 4,
+      "accuracy_target_pass": true,
+      "protection_gate_pass": false,
+      "guidance_limit": "core plus at most one public-intent rule",
+      "stability_note": "Two observed repetitions; retain all regressions and flips. No claim that future runs cannot regress."
+    }
+  }
+}
