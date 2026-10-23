@@ -464,3 +464,24 @@ Qwen 发送 generation seed42，其他三项记录 unsupported；无额外重试
 `D:/T3S_exp/deliveries/docvqa_v12_crossmodel_test_20261024/`；
 实际产物在 `/home/yangchengyu/runs/docvqa_v12_crossmodel_test_20261024/{minimax,qwen,gemini,kimi}/`。
 四项均已完成首题真实请求；完整结果以各自 `evaluation/result.json` 为准。
+
+### Gemini 有界自动重试续跑
+
+2026-10-24 用户授权补齐重试机制并续跑。MiniMax、Qwen、Kimi 的完整结果保留；
+Gemini 前4题与原费用保留，`gemini_retry2`从第5题继续197题。
+付费源码固定为`8d181da6f5d417afd5755cc967a5dee1b87b6e8d`。
+
+`evaluate.py --retry-policy <JSON>`显式启用实验侧推理重试，默认关闭。
+临时HTTP 408/429/500/502/503/504/529及连接中断按10/30/60秒退避，
+每题最多追加3次，已记录的旧失败也计入次数；计数持久化，恢复不会清零。
+鉴权、配额、参数错误、正常拒答和模型答错不进入重试。
+重试保持实际payload和生成上限一致，不改变Skill、Program、评分器或repair次数。
+每次缺usage的失败保留完整预留，作为额外基础设施支出计入原19,296,000 tokens／5427 HTTP总额度。
+仅这些已记录失败获得有限的单题额外额度；普通求解仍限96000，耗尽总额度或重试次数即停止。
+
+原两次未知费用预留139,171 tokens未清除。新账本包含全部旧请求，不能再与旧账本相加。
+`continue_frozen.py`校验来源、任务互斥和Bank哈希后生成完整201题`completion_report.json`，
+分别报告已知tokens和未知预留，未知费用不伪装成零。
+真实第5题已用相同payload恢复成功。503→504→成功、连接中断、次数耗尽后恢复、
+鉴权失败、正常错答及总预算拒绝的6项生产链路检查通过；聚合检查复用原4题，无新增调用。
+原运行副本、原失败请求、其他模型结果均保持不变。
