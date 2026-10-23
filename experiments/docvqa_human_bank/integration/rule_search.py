@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1] / 'bank'
 
 
 def skills(selected, revision='v10'):
-    if revision not in ('v10', 'v11', 'v12'):
+    if revision not in ('v10', 'v11', 'v12', 'v13'):
         raise ValueError('Unknown frozen rule catalog')
     catalog = json.loads((ROOT / f'rule_search_{revision}.json').read_text())
     core = json.loads((ROOT / catalog['core_source']).read_text())['core']
@@ -26,5 +26,6 @@ def skills(selected, revision='v10'):
         direction, variant = choices[key]
         result.append({'title': direction['id'], 'goal': direction['id'],
             'guidance': variant['text'], 'method_version': catalog['version'], 'principle_id': key,
-            'public_intent_trigger': direction['trigger'], 'priority': rank(direction)})
+            'public_intent_trigger': direction['trigger'], 'priority': rank(direction),
+            **({'submission_kind': variant['submission_kind']} if 'submission_kind' in variant else {})})
     return result

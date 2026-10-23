@@ -440,6 +440,38 @@ def test_single_tool_keeps_one_selected_answer(imported, tmp_path, monkeypatch, 
         system.close()
 
 
+@pytest.mark.parametrize('question,kind,value,expected', [
+    ('How many participants are reported?', 'count', 'N=18', '18'),
+    ('How many participants are reported?', 'count', 'more than 18', 'more than 18'),
+    ('What is the account identifier?', 'verbatim', 'N=18', 'N=18'),
+])
+def test_skill_declared_submission_kind_is_scoped(imported, tmp_path, monkeypatch, question, kind, value, expected):
+    c, _ = imported
+    c['data_dir'] = str(tmp_path / 'v13_bank')
+    config = tmp_path / 'v13_config.json'; config.write_text(json.dumps(c))
+    prepare_single(ROOT, config, c['data_dir'], skill_revision='v13', principle_ids=['count_bound'])
+    manifest = json.loads((Path(c['data_dir']) / 'manual_manifest.json').read_text())
+    adapter = AnswerAdapter('docvqa', {'docvqa:fixture': {'answers': [expected]}}, c)
+    system = EmpiricalSystem(c, harness=adapter, readonly=True,
+        bank_view_factory=lambda b: SingleNodeDocVQAView(b, manifest))
+    task = PublicTask('docvqa:fixture', 'synthetic-physical', question,
+        {'images': [str(ASSETS / 'fixtures/synthetic_form.png')]}, 'test')
+    sent = http(monkeypatch, [response([{'answer': value, 'answer_kind': kind,
+        'evidence_sources': ['page']}], name='answer_step')])
+    try:
+        before = system.bank.digest()
+        with single_node_bridge(guidance_role='system', evidence_interface='typed', submission_contract='direct_submit'):
+            trace = system.run_task(task, learn=False)
+        kinds = sent[0]['tools'][0]['function']['parameters']['properties']['answer_kind']['enum']
+        assert (kinds == ['count']) == (kind == 'count')
+        assert trace['execution']['prediction'] == expected
+        assert (trace['execution']['reason'] == 'program_submitted') == (kind == 'count')
+        assert trace['requests'][0]['response']['tool_calls'][0]['arguments']['answer'] == value
+        assert len(sent) == 1 and system.bank.digest() == before
+    finally:
+        system.close()
+
+
 @pytest.mark.parametrize('diagnostic', [
     'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?',
     'error during connect: connection refused',

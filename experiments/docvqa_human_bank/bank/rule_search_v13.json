@@ -1,0 +1,136 @@
+{
+  "version": "docvqa.manual.rule-search.v13",
+  "core_source": "typed_v9.json",
+  "directions": [
+    {
+      "id": "phone",
+      "priority": 0,
+      "trigger": "\\b(phone|telephone|fax)\\b",
+      "variants": [
+        {
+          "id": "phone_raw",
+          "text": "For phone or fax, pass the exact visible number to answer_step, including parentheses, hyphens and spaces. Never pre-format it; only the Program applies its declared formatting."
+        }
+      ]
+    },
+    {
+      "id": "comparison",
+      "priority": 1,
+      "trigger": "\\b(highest|lowest|greatest|least|maximum|minimum|higher|lower|greater|most)\\b",
+      "variants": [
+        {
+          "id": "comparison_facts",
+          "text": "Comparison card: the requested measure defines the column; region, year and group restrict the eligible rows. Compare only those cells, then return the requested name from the winning row. A large number in another column does not win. Copy the row label without adding the compared number."
+        }
+      ]
+    },
+    {
+      "id": "count",
+      "priority": 2,
+      "trigger": "\\bhow many\\b|\\btotal number of\\b",
+      "variants": [
+        {
+          "id": "count_bound",
+          "text": "Count card: select the reported count together with any more-than, fewer-than, range or approximation qualifier. A sample-size marker N= is a label, not a qualifier. Submit this span as count; the Program removes N= only. Never replace a bounded count with an exact number.",
+          "submission_kind": "count"
+        }
+      ]
+    },
+    {
+      "id": "quantity",
+      "priority": 3,
+      "trigger": "\\b(intensity|quantity)\\b",
+      "variants": [
+        {
+          "id": "quantity_facts",
+          "text": "Quantity card: the measured object identifies which value to read; its name is not part of the value. Return the magnitude, printed unit and any bound. A label before an equals sign and a quoted material name after a unit identify the object. Keep units and bounds; do not add an object label."
+        }
+      ]
+    },
+    {
+      "id": "amount_slots",
+      "priority": 4,
+      "trigger": "^\\s*how much\\b.*\\b(money|paid|received)\\b",
+      "variants": [
+        {
+          "id": "amount_facts",
+          "text": "Form card: a payment contains the filled amount and its currency units. Preprinted connectors and currency slots with a dash or blank but no value are unfilled template text. Stop the amount before that unfilled component. A written zero is a value; preserve it. Do not complete the printed template."
+        }
+      ]
+    },
+    {
+      "id": "cause",
+      "priority": 5,
+      "trigger": "\\b(why|reason|cause)\\b",
+      "variants": [
+        {
+          "id": "cause_facts",
+          "text": "Cause card: the question already supplies the event to explain. Return the document clause giving its cause, including negation or conditions. A following clause repeating that event is not another part of the cause. Submit the causal clause alone, not the entire sentence containing cause and effect."
+        }
+      ]
+    },
+    {
+      "id": "literal",
+      "priority": 6,
+      "trigger": "\\b(written|spelled|spelling)\\b|^\\s*(who|whom)\\b.*\\b(highest|lowest|greatest|least|maximum|minimum)\\b",
+      "variants": [
+        {
+          "id": "literal_copy",
+          "text": "Transcribe the selected name or lettering as printed, not in conventional edited form. Do not add an abbreviation's usual period or a space inside visibly joined lettering. Preserve punctuation that is actually present."
+        }
+      ]
+    },
+    {
+      "id": "role",
+      "priority": 7,
+      "trigger": "\\b(title|job|designation|role|position)\\b|^\\s*who is (?!the\\b)[^?]+\\?",
+      "variants": [
+        {
+          "id": "role_facts",
+          "text": "Role card: if the question identifies a person and asks their title, job or identity, return the occupation or position itself; employer and address identify context. If it asks who holds a position, return the person instead. A document, chart or film title is a title string, not a job: retain its full heading."
+        }
+      ]
+    },
+    {
+      "id": "identifier",
+      "priority": 8,
+      "trigger": "\\b(room|schedule)\\b",
+      "variants": [
+        {
+          "id": "identifier_facts",
+          "text": "Identifier card: a requested room number is the identifier alone, without the word Room. A question asking which schedule requests its label and number together, without the descriptive heading. Use descriptions to locate the item; return the requested identifier with its internal letters and punctuation."
+        }
+      ]
+    },
+    {
+      "id": "entity",
+      "priority": 9,
+      "trigger": "\\b(where|who|whom|institution|university|association|company|organization|supplier)\\b",
+      "variants": [
+        {
+          "id": "entity_facts",
+          "text": "Entity card: answer with the requested person, organization or place name. Prepositions introducing it, an adjacent year, address and employer details are context rather than the name. Preserve internal articles and name words. For who-is questions requesting a person's occupation, give that occupation alone."
+        },
+        {
+          "id": "entity_slot",
+          "text": "Requested entity = answer; locating relation = context. Extract the entity noun phrase from its cell or clause, excluding an introductory at/to/from and neighboring dated or address fields. Keep words that belong inside the name. Return only that filled slot, without the surrounding sentence."
+        }
+      ]
+    },
+    {
+      "id": "boundary",
+      "priority": 10,
+      "trigger": "\\b(where|who|whom|institution|association|company|organization|title|job|role|position|schedule|room)\\b",
+      "variants": [
+        {
+          "id": "boundary_column",
+          "text": "For a named field, use neighboring text to locate it, then separate fields by their labels and layout. Return the complete requested field rather than the whole row or sentence. Keep internal name words; adjacent dates, catalogue codes and explanations belong to separate fields."
+        },
+        {
+          "id": "field_boundary",
+          "text": "First identify the field requested by the question. Use other columns and descriptions only to locate it. In a table, copy that field's cell without adjacent columns. In a name block, distinguish the entity name from a separate department or address; a line break alone does not end a name. For a numbered item, exclude the description used to identify it."
+        }
+      ]
+    }
+  ]
+}
