@@ -47,7 +47,7 @@ def contract(schema, *, can_inspect, percentage=False):
     schema = deepcopy(schema)
     for key in ('evidence_text', 'answer_kind'):
         schema['properties'].pop(key, None)
-    schema['properties']['answer_kind'] = {'enum': KINDS + (['percentage'] if percentage else []),
+    schema['properties']['answer_kind'] = {'type': 'string', 'enum': KINDS + (['percentage'] if percentage else []),
         'description': 'verbatim for ordinary text, amounts, dates and identifiers; phone for a telephone number; page for a page number; count for the selected numerical count. Never infer a count from an ordinal.'}
     if percentage:
         schema['properties']['answer_kind']['description'] += ' percentage only for a selected value with one printed numeric percentage; preserve its unit and bounds.'
