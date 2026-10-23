@@ -442,3 +442,25 @@ Program没有删除该限定词，不能把它当作确定性格式转换修复�
 付费源码`0f7297d`只在原付费父版本加入本轮改动；实现提交`0321352`，
 合并上游后的`9e937eb`通过相同8项聚焦检查，未额外购买合并源码的模型请求。
 以上是探索性人工Bank局部收益与失败记录，不是95%全量结果或自然学习成功声明。
+
+## v12 四模型 Test（2026-10-24）
+
+用户授权 MiniMax-M3、qwen3.8-flash、gemini-3.8-flash（RootFlow）、kimi-k2.6
+各跑一次相同 canonical Test201，固定 seed42、原始图像和评分器。
+使用 GLM 189/201、190/201 的原 v12 Bank，树哈希为
+`b3ff236b99a798f928942baa408f05d0feb97c748ac98073b22e12bec5fe3d84`；
+接口为 `--single-node --guidance-role system --evidence-interface typed --submission-contract direct_submit`。
+Bank 不重新导入、学习或编辑，Skill 与 Program 均沿用原资产。
+
+仅复用现有供应商传输适配，并补齐提交 enum 的字符串类型声明。
+Qwen 依据用户单独确认使用 `--task-token-limit 400000`，保留 131072 thinking 和
+65536 正文上限；预算预留同时包含两部分。其他模型默认每题96000。
+Qwen 发送 generation seed42，其他三项记录 unsupported；无额外重试或模型探针。
+每个模型独立目录、独立账本，只计本次新 Test，历史费用和 GLM 搜索额度不变。
+
+付费运行固定源码 `5a641d0f85399e538552af4af6a0df8d99e5977a`，
+集成源码 `4072e59` 另行通过四模型图像、流式工具、Docker 提交与预算检查。
+启动记录、配置、来源和监控脚本位于
+`D:/T3S_exp/deliveries/docvqa_v12_crossmodel_test_20261024/`；
+实际产物在 `/home/yangchengyu/runs/docvqa_v12_crossmodel_test_20261024/{minimax,qwen,gemini,kimi}/`。
+四项均已完成首题真实请求；完整结果以各自 `evaluation/result.json` 为准。
