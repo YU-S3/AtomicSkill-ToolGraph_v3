@@ -1,0 +1,7 @@
+{
+  "pid": 76605,
+  "at": "2026-10-23T13:39:30.235616+00:00",
+  "root": "/home/yangchengyu/searchqa_minimax_r2_test1400_seed42_20261023",
+  "stage": "fulltest1400",
+  "plan_sha256": "338e6952bcd4171eb57f86e95b25c696db1afbf72c60ec898dddf6d962d7795e"
+}

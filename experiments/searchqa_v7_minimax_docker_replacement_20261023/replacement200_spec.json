@@ -1,0 +1,12 @@
+{
+  "tasks": "/mnt/d/T3S_exp/deliveries/searchqa_v7_minimax_docker_replacement_20261023/replacement200_tasks.json",
+  "base_config": "/mnt/d/T3S_exp/deliveries/searchqa_v7_minimax_docker_replacement_20261023/base_config.json",
+  "arms": {
+    "v7_text_compiler": {
+      "kind": "native",
+      "package": "/home/yangchengyu/searchqa_v7_minimax_test1400_resume_20261023/fulltest1400/v7_text_compiler/input",
+      "frozen_source": "/home/yangchengyu/searchqa_v7_minimax_test1400_resume_20261023/fulltest1400/v7_text_compiler/frozen_bank"
+    }
+  },
+  "purpose": "Authorized replacement200: same frozen V7/model/input/scorer. Stop on Docker availability failure before model repair; separate excluded old costs from physical billing."
+}

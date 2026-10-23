@@ -1,0 +1,12 @@
+{
+  "tasks": "/home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1/searchqa/test.json",
+  "base_config": "/mnt/d/T3S_exp/deliveries/searchqa_minimax_r2_test1400_20261023/base_config.json",
+  "arms": {
+    "r2": {
+      "kind": "native",
+      "package": "/mnt/d/T3S_exp/deliveries/searchqa_minimax_r2_test1400_20261023/packages/minimax_r2",
+      "frozen_source": "/home/yangchengyu/searchqa_minimax_accuracy_r2_20261023/followup96/r2/frozen_bank"
+    }
+  },
+  "purpose": "Complete canonical Test1400 in its original order, seed42. Unchanged R2 Bank and MiniMax settings from followup96. Human-authored post-Test development; not blind generalization. No task-result reuse or automatic subsequent runs."
+}

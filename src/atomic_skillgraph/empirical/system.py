@@ -36,6 +36,9 @@ def validate_config(config):
     if config.get("mechanism_profile") != PROFILE:
         raise ValueError("Empirical System requires its explicit profile")
     config = deepcopy(config)
+    from .final_submission import VERSION as FINAL_SUBMISSION
+    if config.get('runtime', {}).get('final_submission_version') not in (None, FINAL_SUBMISSION):
+        raise ValueError('Unknown final submission protocol')
     if config.get('experiment', {}).get('office_effect_version'):
         from .office_effect_runtime import validate_runtime
         validate_runtime(config)
@@ -455,9 +458,11 @@ class EmpiricalSystem:
 
     def prepare_finish(self, materials, prompt, *, allowed_result_ids=None):
         from .finish_evidence import build_finish_evidence
+        from . import final_submission
         from . import process_learning, public_pages
         if process_learning.enabled(self.config):
             prompt = public_pages.answer_prompt(prompt)
+        prompt = final_submission.prompt(prompt, self.config['runtime'])
         provider = self.provider('runtime', 'finish_only')
         output_cap = self.resolve_call_settings('runtime', 'finish_only').get('max_completion_tokens', 2048)
         input_cap = min(self.config['runtime']['finish_input_max_bytes'],
@@ -465,7 +470,8 @@ class EmpiricalSystem:
         if input_cap <= 0: raise ValueError('finish_unavailable:remaining_budget')
         def payload(value, completion):
             messages = [{'role':'system','content':prompt}, {'role':'user','content':self.material_json(value)}]
-            wire = provider._build_payload(messages, []) if isinstance(provider, OpenAICompatibleProvider) else {'messages':messages}
+            finish_tools = final_submission.tools(self.config['runtime'])
+            wire = provider._build_payload(messages, finish_tools) if isinstance(provider, OpenAICompatibleProvider) else {'messages':messages, 'tools':[t.to_openai() for t in finish_tools]}
             wire[provider.config.token_limit_field if isinstance(provider, OpenAICompatibleProvider) else 'max_tokens'] = completion
             return wire
         return build_finish_evidence(self.task_context, materials, prompt, max_bytes=input_cap,
@@ -486,9 +492,16 @@ class EmpiricalSystem:
             self.checkpoint.advance(self.checkpoint.state['stage'], model_context={k: getattr(self.task_context, k)
                 for k in ('scope', 'results', 'sources', 'memory', 'result_origins', 'window_sources', 'sent_windows')})
         purpose = decision_purpose or ('finish_only' if name == 'finish_answer' else {'tool_builder': 'builder'}.get(stage, stage))
-        if purpose=='finish_only':name=None
+        from . import final_submission
+        explicit_final = final_submission.enabled(self.config['runtime'])
+        if purpose=='finish_only':
+            name, schema = ('finish_answer', final_submission.SCHEMA) if explicit_final else (None, None)
+            prompt = final_submission.prompt(prompt, self.config['runtime'])
+        elif explicit_final and name == 'runtime_step':
+            prompt += '\nA complete bare numeric answer with no ToolCalls is an alternative final submission; it ends the task unchanged. Use runtime_step.finish for other answer forms.'
         original_purpose=purpose
-        tools = [NativeToolSpec(name, "Submit the requested result", schema)] if name else []
+        tools = (final_submission.tools(self.config['runtime']) if purpose=='finish_only' and explicit_final
+                 else [NativeToolSpec(name, "Submit the requested result", schema)] if name else [])
         choice_learning = (self.config['learning'].get('choice_guidance', {}).get('enabled') is True and
                            self.adapter.capabilities.interaction == 'single_answer' and
                            materials.get('learning_material_version') in ({CHOICE_GUIDANCE_MATERIAL_VERSION,PUBLIC_CHOICE_MATERIAL_VERSION}|CHOICE_CAPABILITY_MATERIAL_VERSIONS) and
@@ -547,7 +560,8 @@ class EmpiricalSystem:
             if purpose=='learning_structure_repair':
                 pending=json.loads(messages[1]['content']).get('proposal') or {}
                 if 'workflow' not in pending:round_schema['properties'].pop('workflow',None)
-            tools=[NativeToolSpec(name,'Submit the requested result',round_schema)] if name else []
+            tools=(final_submission.tools(self.config['runtime']) if purpose=='finish_only' and explicit_final
+                   else [NativeToolSpec(name,'Submit the requested result',round_schema)] if name else [])
             settings=self.resolve_call_settings(stage,purpose)
             provider=self.provider(stage,purpose)
             tool_choice=({'type':'function','function':{'name':name}} if name and
@@ -923,6 +937,26 @@ class EmpiricalSystem:
                     raise ValueError('Truncated R3 learning response')
                 if name == 'answer_step' and not turn.tool_calls:
                     return accepted({'action':'finish','answer':turn.content or ''},repair)
+                if explicit_final and name == 'runtime_step':
+                    scalar = final_submission.scalar_answer(turn)
+                    if scalar is not None:
+                        action = {'action':'finish','answer':scalar}
+                        validate_schema_instance(action, schema)
+                        if validator: validator(action)
+                        record['normalized_response'] = {'version':final_submission.VERSION,
+                            'kind':'whole_scalar_final_text','arguments':action,'raw_content_preserved':True}
+                        self._save_requests()
+                        return accepted(RuntimeDecision((action,), (request_id + ':text_final',), request_id), repair)
+                if explicit_final and purpose == 'finish_only':
+                    if len(turn.tool_calls) == 1 and turn.tool_calls[0].name == 'finish_answer':
+                        if turn.finish_reason == 'length': raise ValueError('Truncated final submission')
+                        validate_schema_instance(turn.tool_calls[0].arguments, final_submission.SCHEMA)
+                        answer = turn.tool_calls[0].arguments['answer']
+                        if not answer.strip(): raise ValueError('Empty final submission')
+                        return accepted(answer, repair)
+                    scalar = final_submission.scalar_answer(turn)
+                    if scalar is not None: return accepted(scalar, repair)
+                    raise ValueError('Expected finish_answer or a complete bare numeric answer')
                 if not name:
                     if purpose == 'finish_only':
                         if turn.tool_calls:

@@ -1,0 +1,159 @@
+{
+  "code": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "created_at": "2026-10-23T09:22:51.734625+00:00",
+  "tasks": 128,
+  "arms": {
+    "v7": {
+      "kind": "native",
+      "package": "/home/yangchengyu/searchqa_v7_minimax_docker_replacement_20261023/remaining303/v7_text_compiler/input",
+      "frozen_source": "/home/yangchengyu/searchqa_v7_minimax_docker_replacement_20261023/remaining303/v7_text_compiler/frozen_bank"
+    },
+    "r1": {
+      "kind": "native",
+      "package": "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/packages/minimax_r1"
+    }
+  },
+  "input_identity": {
+    "v7": {
+      "sha256": "18316105ad5aa8c2fb3e4ea7f77c8326ca3c8bb8e61073760b1c88d940592518",
+      "files_sha256": {
+        "FILE_SHA256.json": "21de23c63ac06022f79b97de136560b04c3513b6499230442a45b9a5e0bca554",
+        "INTEGRATION_CONTRACT.md": "f82bbbf11c77e0e55cc0d1947371fef6ccfa978316b93532815bd4e92b105db3",
+        "README.md": "c5db87c21cc0f5e8116385ecddd0737d945fdf95186dec51af21cbfdb18a278a",
+        "RESEARCH_AND_DECISIONS.md": "ec251cda4fd91ac1541910b4c72d2372506c48d488e50fb37c2f1cc360411515",
+        "THIRD_PARTY_NOTICES.md": "ba57f6d61b6f235dec4f181778d6cbaeebf1ac7caf8bd3ff604cb0b2972a4e82",
+        "bank/bank.json": "7905f4c11e61b858fd390dd338b06e2f8183a89bc27d262efdbff27bd9cf7d4c",
+        "bank/manual_manifest.json": "e7c2ab679786b41856497016bffb49426a3b3db09f9b8079c6ce693acbe67c5b",
+        "build_bank.py": "ec401df5da2e509774d89132658ac3b08cea325a920ee9a7ba2ebbfe4826654a",
+        "candidate_provenance.json": "b3a410502dcca5a4e63e828d099f213a849a3a9bbb3fd22c7f5d28654e6151fa",
+        "diagnostic_provenance.json": "ea9ad82db60603771a2e988df39867e53242b14a9c2cee6e9deedebb16d71ff1",
+        "environment.lock.json": "1158db4439d46c70ce46f8e9bdc800fb66a16ea56ff9ddc49a150723d00e3281",
+        "guidance/evidence.txt": "b160a7baaa2984d2c8af55b7fbce7a60199e79a96913e6c5329b3856d567908e",
+        "guidance/solve.txt": "669266659379fe8fe81d30b9af20a588cab0e29d9e31445ab63b48c266fc01b3",
+        "guidance/surface.txt": "01c5376c3a0a71233221535cf14bfd29654f83405d96e7bc31ba73b66f0ff116",
+        "implementations/implementation_hs_searchqa_constraint_check_v7_text_compiler.json": "a0a73602a13815c3f14432d3d70897dfd85bf8584cfcf8e63810caafca4a5a25",
+        "implementations/implementation_hs_searchqa_context_index_v7_text_compiler.json": "950be2ef06e8ef55987636d1b75132cf68a2dcc3395869f36d23a20e84122092",
+        "implementations/implementation_hs_searchqa_evidence_windows_v7_text_compiler.json": "4fc849941d2d89f92e3cbbd9db502cf441ebc9a0e99f7be0268a8269dc861d35",
+        "implementations/implementation_hs_searchqa_submit_v7_text_compiler.json": "9a2023ce78560340afdd399e61192d7dff51d93c02aa8e83ae435d91d65b729c",
+        "import_bank.py": "32732c78c0c87288bb42c82777c50e6ee0be01313965ee83aa513962b2e06fa9",
+        "integration.py": "05f230619072b087980ce0a8837b4633236f506ad5060bc29f513d6777edfd37",
+        "licenses/SkillOpt_MIT.txt": "9515a04280cf50ce154eb3ab8fa375c7cc5e6b45ea5cb23b7ff3830737020c15",
+        "program_assets/program_hs_searchqa_constraint_check_v7_text_compiler.json": "5b1d3c76f8b2868a6af3921bd334261f47a47d35ebf9b0714e0bb4b91fa71606",
+        "program_assets/program_hs_searchqa_context_index_v7_text_compiler.json": "bffc4e861f31d3b12ff0b63c026090bb67f180ca975546ad5ef2cd63fc0b5f67",
+        "program_assets/program_hs_searchqa_evidence_windows_v7_text_compiler.json": "4ba7f08e7f71eeaddd9f77ecb68c0cd80833fc3373793d2a4f4c0ddc4324e37c",
+        "program_assets/program_hs_searchqa_submit_v7_text_compiler.json": "494319a063b8618f98e923e1ede627f6bf1d03155487b031870ca99bf3993f8e",
+        "programs/constraint_check.py": "ba862233db53c675b517ad965aebbb23f5f5861ca357bc54f1153d356b87f485",
+        "programs/context_index.py": "99d776dee48a24c7a406b5d567efdc3bbd71d715a68c1e082b14bffd2f525526",
+        "programs/evidence_windows.py": "92a92bfab263013ece65e2e6abe162631b7bf2d0c456649962f91888f387f8aa",
+        "programs/submit.py": "f70422057e373999f084b1254e810a42c23678a9230ef44b4d3a8bbf171ff074",
+        "run_bank.py": "6b77f698258d1565d36874073ce35cbae50b59c5c625cc408194807822f9b284",
+        "skills/skill_hs_searchqa_constraint_check_v7_text_compiler.json": "97819712f1d33ef1a2b8c6c22ce2bb069fd02f2cb2d37bf534786a950b15b0ee",
+        "skills/skill_hs_searchqa_context_index_v7_text_compiler.json": "e2ef5398bb0d41e4302e1ec9683e26a2f7c169cdd3f28f08757e341e5575761e",
+        "skills/skill_hs_searchqa_evidence_v7_text_compiler.json": "f4147ac6b78b9316ed7b3cc8706e23ea4f1c30f0ab437bf7a7d75ac484e3d88d",
+        "skills/skill_hs_searchqa_evidence_windows_v7_text_compiler.json": "34ef45a41cc20d0ebc6a37b264554c27ffd4d6261dd1f662ae8addd827b61921",
+        "skills/skill_hs_searchqa_solve_v7_text_compiler.json": "649f617a779e6e41b8754daa32e996407413970fb14f177ec3748673636dcb59",
+        "skills/skill_hs_searchqa_submit_v7_text_compiler.json": "79c47e9be2d260fd6c3cb3a6aedce9515c0559f5f97d315f4420f07b4908ec89",
+        "skills/skill_hs_searchqa_surface_v7_text_compiler.json": "61e1dfce3a055648e1a0bf82d82fb7fb5661f3b06a2d346b7b16046a87f299f3",
+        "workflows/workflow_hs_searchqa_supported_answer_v7_text_compiler.json": "277905d146ada9287cf6d26ca43f1fd0540adf000d10eda3d7179d13d7d0030d"
+      },
+      "size_bytes": 169564
+    },
+    "r1": {
+      "sha256": "0fd56381a36961aa617ca42af3924337574ec64f5b46ef403f33ad20741ec993",
+      "files_sha256": {
+        "FILE_SHA256.json": "b4e428a45748e017c866afce3b6da85e520b8d1a541201308889bc3d77c5d92d",
+        "README.md": "a3e8e25041b39a467cdcedca93c8e40111f0fae94a1e79cf9809bb2c2e202a88",
+        "THIRD_PARTY_NOTICES.md": "ba57f6d61b6f235dec4f181778d6cbaeebf1ac7caf8bd3ff604cb0b2972a4e82",
+        "bank/bank.json": "dfd81bc03108ee26d243080812b4c4aeb920196aa9ed88b1d3b19e1c42a76dd2",
+        "candidate_provenance.json": "f11125165beec3c07c5918aeeb81fe3a908faebea9cec1b98c09d48b6b3335fd",
+        "environment.lock.json": "1158db4439d46c70ce46f8e9bdc800fb66a16ea56ff9ddc49a150723d00e3281",
+        "fact_cards.json": "313558070964e7ec184147f255da0dc60b924c635a415d932fe39efc96286e5e",
+        "guidance/evidence.txt": "9c8bb525aab1450935c712cfbf7de6e25c0a672ee1861969224d1fa3460d655b",
+        "guidance/solve.txt": "a09155cfb0118fb520f12b7733e85e00bd2453f0edb6d2bfbc1a9d8347ebcd95",
+        "guidance/surface.txt": "d7f630c997a910afe0cce5d58d9d7712b20dc502f0a8f5ad8ffe68b0ba85b8f0",
+        "implementations/implementation_hs_searchqa_constraint_check_minimax_r1.json": "e60923a931258a132f16545b746b12de1b3e7f8250d0ad5b0a770e408232aa81",
+        "implementations/implementation_hs_searchqa_context_index_minimax_r1.json": "0aeb21f2c6405138f00426269e917c854b8a5fa43f5622ecff278d9afd814327",
+        "implementations/implementation_hs_searchqa_evidence_windows_minimax_r1.json": "b9c5852fe60df4287ca839028c41f38f43f91847287d21d004ffe57758ee930b",
+        "implementations/implementation_hs_searchqa_submit_minimax_r1.json": "5a7fd9b5ca1f97d768731a6b6b414fb5c443887325dd46a01a2eb3b6d0daab14",
+        "integration.py": "06e949d143678d750bc7ce4186dad3710b13546719e99a26baef176f24a7c896",
+        "licenses/SkillOpt_MIT.txt": "9515a04280cf50ce154eb3ab8fa375c7cc5e6b45ea5cb23b7ff3830737020c15",
+        "program_assets/program_hs_searchqa_constraint_check_minimax_r1.json": "c226907cde66b4cca97b03c027a6e520704ada1308000b742f689759b0963d93",
+        "program_assets/program_hs_searchqa_context_index_minimax_r1.json": "46ef8e6ac9c328207d654cb849594128ba29757778d2815d84fb058846570a8a",
+        "program_assets/program_hs_searchqa_evidence_windows_minimax_r1.json": "3a0ddbb4f0f82bcd328775daa7ecb39896bed25d123507049cd30877e17ad07e",
+        "program_assets/program_hs_searchqa_submit_minimax_r1.json": "72dcbec25a6a0fac1d2197159fe0bed4870e9e5b07cfe9caf828e46cfa4421eb",
+        "programs/constraint_check.py": "ba862233db53c675b517ad965aebbb23f5f5861ca357bc54f1153d356b87f485",
+        "programs/context_index.py": "99d776dee48a24c7a406b5d567efdc3bbd71d715a68c1e082b14bffd2f525526",
+        "programs/evidence_windows.py": "92a92bfab263013ece65e2e6abe162631b7bf2d0c456649962f91888f387f8aa",
+        "programs/submit.py": "b9300d3fabb55ff63c1be81c2e75bea974f5bd9c0f7e465bc2314cc1812e960d",
+        "skills/skill_hs_searchqa_constraint_check_minimax_r1.json": "13143a29cf1033b075885ae75b35b742f4be733f91ddea1f2cf26e563e27c1f8",
+        "skills/skill_hs_searchqa_context_index_minimax_r1.json": "418440e124a3d1ff5f3b7a91fa9b62c0af633b2510d923d518252a42d6ff364b",
+        "skills/skill_hs_searchqa_evidence_minimax_r1.json": "f91c49f6440fb894d91361e62c401c2e5e303c68d978268b3419b9cb87186bb3",
+        "skills/skill_hs_searchqa_evidence_windows_minimax_r1.json": "35d2accdd726430959d7c7f604b9034a7d387788aa249eeb51288a7bdb4ea0d3",
+        "skills/skill_hs_searchqa_solve_minimax_r1.json": "21c222a542cb36659a272a67b8808515fe89850c8b37d69ab915e8f247590a75",
+        "skills/skill_hs_searchqa_submit_minimax_r1.json": "df2ceb94cddfd2d8c41372701562e1228774568f27340977dbb5cd97821108aa",
+        "skills/skill_hs_searchqa_surface_minimax_r1.json": "2c959303b2cdac47bb1f40439e737d3f928d57d36991c2dfd9a4040627f4a969",
+        "workflows/workflow_hs_searchqa_supported_answer_minimax_r1.json": "15e000c30226f5797eae16ea52e475fca8be7fe8982fdc20483f22587a9e73f4"
+      },
+      "size_bytes": 143861
+    }
+  },
+  "frozen": {
+    "v7": {
+      "sha256": "f0123c255607d5333a5e38ead7b0db3c4efbe89a965d47347566cbeb8fb38c27",
+      "files_sha256": {
+        "bank.sqlite3": "9a81624e0f2a3e459e2ee915ae3b220239654f2b4c28ee7cc1a4d11b47666810",
+        "imported_bank.json": "da009b600a3df269d6a39b301425f7a8e8fe19f975092bc9255775b72d04aa91",
+        "manual_manifest.json": "4bf5f2807791d50b37b0c065a146f38878e18d56b40a529e7b7a1d26d3097ccd"
+      },
+      "size_bytes": 135166
+    },
+    "r1": {
+      "sha256": "e24a856b2972aa8be2b9dfcefb15756e3540590b70c1f10f1334eff11a12cc03",
+      "files_sha256": {
+        "bank.sqlite3": "635dc85938eb72d0fcbef32e6c61b70b255c542868cf83070645601fb28891f7",
+        "imported_bank.json": "2d6c82f5fae0f9c1fb06143e75336313a5585a15779b7f4466b89bc4ae1a6b0b",
+        "manual_manifest.json": "a44ad79bfc9800ab28017390df3617db87bd96a5a34da28668f007cb0ddc758a"
+      },
+      "size_bytes": 139568
+    }
+  },
+  "files": {
+    "/home/yangchengyu/searchqa_minimax_accuracy_r1_20261023/paired128/tasks.json": "e671976677671bfeb34da83f1bd6fcbe9fd46110a224ccbf5bbcda7d76414a09",
+    "/home/yangchengyu/searchqa_minimax_accuracy_r1_20261023/paired128/schedule.json": "f9c3231a71c76f4d0540b7d0af974b0a535dd302db36345a7a115dd761432097",
+    "/home/yangchengyu/searchqa_minimax_accuracy_r1_20261023/paired128/budget_at_start.json": "a11abe282dae6da5203b2145da5c70fad827810df7756d0fbebdbd9c3eccd954",
+    "/home/yangchengyu/searchqa_minimax_accuracy_r1_20261023/paired128/v7/config.json": "e0d3fd164a6b73cd5e132d43650940f8c174388608e29b36cefb53f436424c77",
+    "/home/yangchengyu/searchqa_minimax_accuracy_r1_20261023/paired128/r1/config.json": "4c67fe5641c0195cbb360afe7aefa99d847ee238766e5e3459862db3ddd34345",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/campaign.py": "391d26685703c3824c5599d174908181933030f3bab38080a78630e3b6e6e86a",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/runtime.py": "054ba5cbfab090645437242122d1f480fd7ef43879baa413431a603fe784c3d1",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/spec.json": "181e8f95ee55d355abb91b8378effea7b023fb961c408a1703640f3a0eb9a3ad",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/campaign_plan.json": "56c96bcaaa113bbfad89d0fe6f04ffe5c2010563f3b9c66d46497f47454e32b2",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/provider_outcomes.py": "2f696876447d082a3d5d2600850e56e9968fcb995db867aea33393415d88de1a",
+    "/home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1/searchqa/evaluator_records_test.json": "93b43f777ba6f793f58efbb1cb9d04444784ccb85f42f3051cc0c60f95a0f252",
+    "/home/yangchengyu/searchqa_minimax_accuracy_r1_20261023/authorization.json": "cc4d8ec5ea74d5fa4736a6d3edf7995ab4e238a58a5366c62ca057d9c70f646a",
+    "/home/yangchengyu/searchqa_minimax_accuracy_r1_20261023/cost_carryforward_manifest.json": "7cc5f6d924db0f2c40b8a0aad215feaf836ae39f4510784915e040b453a697f7",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/run_comparison.py": "296f5101acf3b794e269a278ef14ccdf68e2aed7b4829cd7fc8a2a24b8013030",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/infrastructure_guard.py": "39a6e36463d6dad832bbe5c9a5c6c43429934d0d3c321d50bb225bf6b644cd3a",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/offline_acceptance.json": "5fe14feecdc740e87a831162c7138b5856dfe479bb75e0a86bcf127262b0b956",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/selection.json": "9158b770059594e4f62a38095f32abaf557166ee314c84ee476d7ea00101e77c",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/check_offline.py": "f62e6d96265cf5c01ffed6076b176150674f272020de5916f9b82d8a9a2635db"
+  },
+  "purpose": "Post-Test development: fixed uniform 128 questions, contemporary V7/R1 paired comparison with identical MiniMax model/public inputs/scorer. No automatic full Test.",
+  "limits": {
+    "token_limit": 8000000,
+    "request_limit": 2142,
+    "finish_reserve": 0
+  },
+  "post_test_development": true,
+  "replay_sources": {},
+  "refusal_policy": {
+    "version": "provider-terminal-refusal.v2",
+    "authorization": "用户要求完成 Kimi 实验；保留原额度及明确拒答原始记录。",
+    "refusal": "Official empty-answer scoring; keep in denominator; no retry or prompt alteration.",
+    "billing": "Missing usage stays unknown; retain full original reservation, never fabricate zero usage.",
+    "other_errors": "Stop without scoring; unknown transport/inference failures are not refusals."
+  }
+}

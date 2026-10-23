@@ -1,0 +1,27 @@
+# Provider configuration only. No campaign, paid allowance or model call is authorized here.
+# RootFlow relay features must be checked with the user's account before a formal run.
+version: provider.rootflow-gemini38-flash.20261023.v1
+llm:
+  base_url: https://api.rootflowai.com/v1
+  model: gemini-3.8-flash
+  api_key_env: ROOTFLOWAI_API_KEY
+  dialect: rootflow_gemini38_chat
+  stream: true
+  token_limit_field: max_tokens
+  generation_seed_supported: false
+  capability_profile:
+    tools: true
+    thinking: true
+    reasoning_effort: true
+    generation_seed: false
+  purpose_protocols:
+    runtime: {thinking_type: enabled, reasoning_effort: high}
+    learning: {thinking_type: enabled, reasoning_effort: high}
+    finish: {thinking_type: enabled, reasoning_effort: high}
+runtime:
+  completion: 65536
+  finish_completion: 16384
+  timeout: 600
+  parent_tokens: 128000
+  tail_bytes: 16384
+learning_completion: 32768

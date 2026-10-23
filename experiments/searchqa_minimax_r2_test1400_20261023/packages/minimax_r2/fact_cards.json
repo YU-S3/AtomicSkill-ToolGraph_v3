@@ -1,0 +1,20 @@
+[
+  {
+    "id": "us_interior_bureaus",
+    "source": "https://www.doi.gov/bureaus",
+    "checked_on": "2026-10-23",
+    "fact": "Parent-agency card: National Park Service, Bureau of Indian Affairs, Bureau of Land Management, Bureau of Reclamation, U.S. Fish and Wildlife Service and U.S. Geological Survey are bureaus of the Department of the Interior. If the clue names a bureau and the missing relation is its parent department, return the department rather than repeating the bureau. This is not a rule for every agency."
+  },
+  {
+    "id": "us_vice_president_pairs_1913_1973",
+    "source": "https://www.senate.gov/about/officers-staff/vice-president/vice-presidents.htm",
+    "checked_on": "2026-10-23",
+    "fact": "Vice-president -> president-served card: Thomas R. Marshall -> Woodrow Wilson (1913-1921); Calvin Coolidge -> Warren Harding (1921-1923); Charles Dawes -> Calvin Coolidge (1925-1929); Charles Curtis -> Herbert Hoover (1929-1933); John Nance Garner -> Franklin Roosevelt (1933-1941); Henry Wallace -> Franklin Roosevelt (1941-1945); Harry Truman -> Franklin Roosevelt (1945); Alben Barkley -> Harry Truman (1949-1953); Richard Nixon -> Dwight Eisenhower (1953-1961); Lyndon Johnson -> John Kennedy (1961-1963); Hubert Humphrey -> Lyndon Johnson (1965-1969); Spiro Agnew -> Richard Nixon (1969-1973). Follow the direction requested, not automatically the arrow."
+  },
+  {
+    "id": "us_senate_constitution",
+    "source": "https://www.senate.gov/artandhistory/history/common/briefing/Constitution_Senate.htm",
+    "checked_on": "2026-10-23",
+    "fact": "Constitutional Senate card: two senators per state; six-year terms; minimum age 30; at least nine years of U.S. citizenship; inhabitant of the represented state when elected. Select only the quantity or institution actually asked for."
+  }
+]

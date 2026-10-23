@@ -1,0 +1,16 @@
+{
+  "tasks": "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/tasks128_public.json",
+  "base_config": "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/base_config.json",
+  "arms": {
+    "v7": {
+      "kind": "native",
+      "package": "/home/yangchengyu/searchqa_v7_minimax_docker_replacement_20261023/remaining303/v7_text_compiler/input",
+      "frozen_source": "/home/yangchengyu/searchqa_v7_minimax_docker_replacement_20261023/remaining303/v7_text_compiler/frozen_bank"
+    },
+    "r1": {
+      "kind": "native",
+      "package": "/mnt/d/T3S_exp/deliveries/searchqa_minimax_accuracy_r1_20261023/packages/minimax_r1"
+    }
+  },
+  "purpose": "Post-Test development: fixed uniform 128 questions, contemporary V7/R1 paired comparison with identical MiniMax model/public inputs/scorer. No automatic full Test."
+}

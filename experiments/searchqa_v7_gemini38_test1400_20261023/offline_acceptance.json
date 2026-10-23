@@ -1,0 +1,65 @@
+{
+  "passed": true,
+  "real_http": 0,
+  "source": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "checks": [
+    {
+      "mode": "normal",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_gemini_normal_xv28kkix"
+    },
+    {
+      "mode": "refusal_metered",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_gemini_refusal_metered_mfzrpez8"
+    },
+    {
+      "mode": "refusal_unknown",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_gemini_refusal_unknown_6rpr93lv"
+    },
+    {
+      "mode": "broken_stream",
+      "passed": true,
+      "intercepted_requests": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_gemini_broken_stream_es60co_q"
+    },
+    {
+      "mode": "missing_usage",
+      "passed": true,
+      "intercepted_requests": 1,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_gemini_missing_usage_dx1_4j8n"
+    },
+    {
+      "mode": "docker_after_response",
+      "passed": true,
+      "intercepted_requests": 2,
+      "real_http": 0,
+      "fixture": "/home/yangchengyu/searchqa_gemini_docker_after_response_uyski5h4"
+    }
+  ],
+  "driver_sha256": "391d26685703c3824c5599d174908181933030f3bab38080a78630e3b6e6e86a",
+  "launcher_sha256": "414c6f259f32434ca8c96c7ad22f96c67b8e6e875e2e5c96536e81e13cf19584",
+  "test_sha256": "546b9bfe3a8bc711485a6542769d2d20253f76a08d2094a84efac467b7c316d4",
+  "guard_sha256": "39a6e36463d6dad832bbe5c9a5c6c43429934d0d3c321d50bb225bf6b644cd3a",
+  "canonical_payloads_checked": 1400,
+  "maximum_prompt_bound_plus_completion": 78188,
+  "same_v7_messages_and_full_context": true,
+  "native_docker_program_and_official_score_verified": true,
+  "completed_resume_adds_no_calls": true,
+  "raw_total_charged_without_fabricated_reasoning": true,
+  "broken_stream_and_missing_usage_stop_before_score": true,
+  "docker_failure_stops_before_repair_and_reuses_paid_answer": true
+}

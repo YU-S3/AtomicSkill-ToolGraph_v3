@@ -1,0 +1,155 @@
+{
+  "passed": true,
+  "at": "2026-10-23T05:58:29.557617+00:00",
+  "real_http_from_check": 0,
+  "snapshot": {
+    "at": "2026-10-23T05:58:29.539593+00:00",
+    "stages": {
+      "replacement200": {
+        "metrics": {
+          "tasks": 19,
+          "correct": 12,
+          "em": 0.631578947368421,
+          "f1": 0.8254385964912281,
+          "tokens": 51836,
+          "http": 19
+        },
+        "status": "running",
+        "error": null
+      },
+      "remaining303": {
+        "metrics": {
+          "tasks": 0,
+          "correct": 0,
+          "em": null,
+          "f1": null,
+          "tokens": 0,
+          "http": 0
+        },
+        "status": "prepared",
+        "error": null
+      }
+    },
+    "effective": {
+      "tasks": 916,
+      "correct": 727,
+      "em": 0.7936681222707423,
+      "f1": 0.8772434413968433,
+      "tokens": 3108530,
+      "http": 917
+    },
+    "expected_tasks": 1400,
+    "excluded_old_cost": {
+      "tasks": 200,
+      "correct": 150,
+      "em": 0.75,
+      "f1": 0.8496071428571429,
+      "tokens": 1659185,
+      "http": 439
+    },
+    "physical_metered_tokens": 4767715,
+    "physical_http": 1359,
+    "unknown_reserved_tokens": 154912,
+    "alive": true
+  },
+  "samples": [
+    {
+      "task_id": "searchqa:918c7ca9502243d6b410aab5e3258bfb",
+      "request_id": "provider_request_80ff5be983124164999fde2e204f4cdc",
+      "raw_usage": {
+        "total_tokens": 1816,
+        "total_characters": 0,
+        "prompt_tokens": 1675,
+        "completion_tokens": 141,
+        "completion_tokens_details": {
+          "reasoning_tokens": 129
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 128
+        }
+      },
+      "parameters": {
+        "model": "MiniMax-M3",
+        "max_completion_tokens": 65536,
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "thinking": {
+          "type": "adaptive"
+        },
+        "reasoning_split": true,
+        "service_tier": "standard"
+      },
+      "program_consumed": true
+    },
+    {
+      "task_id": "searchqa:5b85faf48c5445c795c56d06d072af59",
+      "request_id": "provider_request_0ab4e50d1db547ee91dc163bba07c589",
+      "raw_usage": {
+        "total_tokens": 2803,
+        "total_characters": 0,
+        "prompt_tokens": 2622,
+        "completion_tokens": 181,
+        "completion_tokens_details": {
+          "reasoning_tokens": 169
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 128
+        }
+      },
+      "parameters": {
+        "model": "MiniMax-M3",
+        "max_completion_tokens": 65536,
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "thinking": {
+          "type": "adaptive"
+        },
+        "reasoning_split": true,
+        "service_tier": "standard"
+      },
+      "program_consumed": true
+    },
+    {
+      "task_id": "searchqa:dedfb6cc72b44d74a2adebfd9bbbdf8e",
+      "request_id": "provider_request_3ab866b1db5e4344885d72d20ab5bb6b",
+      "raw_usage": {
+        "total_tokens": 3989,
+        "total_characters": 0,
+        "prompt_tokens": 2779,
+        "completion_tokens": 1210,
+        "completion_tokens_details": {
+          "reasoning_tokens": 1199
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 128
+        }
+      },
+      "parameters": {
+        "model": "MiniMax-M3",
+        "max_completion_tokens": 65536,
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "thinking": {
+          "type": "adaptive"
+        },
+        "reasoning_split": true,
+        "service_tier": "standard"
+      },
+      "program_consumed": true
+    }
+  ],
+  "parents_and_qwen_unchanged": true,
+  "source": {
+    "git_sha": "5ff29b0a785642aa5ba54918843ebcdc586afae0",
+    "tracked_dirty": false,
+    "source_sha256": "52c3e294dbc76ab1548cf14b152c757c7c5aa4c92b19e12a858059cb94c0e295"
+  },
+  "same_public_messages_bank_model": true,
+  "guard_sha256": "39a6e36463d6dad832bbe5c9a5c6c43429934d0d3c321d50bb225bf6b644cd3a"
+}

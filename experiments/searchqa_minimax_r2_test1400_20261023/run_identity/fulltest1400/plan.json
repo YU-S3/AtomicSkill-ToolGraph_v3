@@ -1,0 +1,102 @@
+{
+  "code": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "created_at": "2026-10-23T13:39:28.211013+00:00",
+  "tasks": 1400,
+  "arms": {
+    "r2": {
+      "kind": "native",
+      "package": "/mnt/d/T3S_exp/deliveries/searchqa_minimax_r2_test1400_20261023/packages/minimax_r2",
+      "frozen_source": "/home/yangchengyu/searchqa_minimax_accuracy_r2_20261023/followup96/r2/frozen_bank"
+    }
+  },
+  "input_identity": {
+    "r2": {
+      "sha256": "7189fe6cb380a93f29a447be2145ffb40fb4e94da0d4d8f0f4bda50a94370c82",
+      "files_sha256": {
+        "FILE_SHA256.json": "e05bae7ea13de23779de215d38af2e5213837922d0d187ff7ab95663c959a5ef",
+        "README.md": "34838cfa79a4da22356d6a31fa53f9711d4207a760bfce1702710648c7121b8b",
+        "THIRD_PARTY_NOTICES.md": "ba57f6d61b6f235dec4f181778d6cbaeebf1ac7caf8bd3ff604cb0b2972a4e82",
+        "bank/bank.json": "b68385324ee6ccec31485ea0c2d12b624c567684742c8b39536adec72f097332",
+        "candidate_provenance.json": "d94d67d264d70d667db8b8f43e4825e5f49f214c558aad714231c50b12e97f80",
+        "environment.lock.json": "1158db4439d46c70ce46f8e9bdc800fb66a16ea56ff9ddc49a150723d00e3281",
+        "fact_cards.json": "313558070964e7ec184147f255da0dc60b924c635a415d932fe39efc96286e5e",
+        "guidance/evidence.txt": "9c8bb525aab1450935c712cfbf7de6e25c0a672ee1861969224d1fa3460d655b",
+        "guidance/solve.txt": "2fa28c89a119f9ad1d9074492d2e7c159dd1ac9f0bc6365c85ccafa6241a05c3",
+        "guidance/surface.txt": "d7f630c997a910afe0cce5d58d9d7712b20dc502f0a8f5ad8ffe68b0ba85b8f0",
+        "implementations/implementation_hs_searchqa_constraint_check_minimax_r2.json": "67762cdf21f524c0afb76d64a96b72b63b1c7408288039479f0edc65b6d94074",
+        "implementations/implementation_hs_searchqa_context_index_minimax_r2.json": "293cb2d5ba3046fa5537f9f383166721bc199aa7f4bf50551199f3694b8a8cd8",
+        "implementations/implementation_hs_searchqa_evidence_windows_minimax_r2.json": "2f48197917d1c0811a975b370aa5ac36129cf0396146afbc20012ae849b429a0",
+        "implementations/implementation_hs_searchqa_submit_minimax_r2.json": "341a53150ebe7f5d0b2dfc8d05cb3b4893a8998c7c57cd54956b3bca7a327ec4",
+        "integration.py": "b0d306ddea5f0fdb89cea9dbf8c57b7a27f28d0e0b8d9f0f1184fee4029a060a",
+        "licenses/SkillOpt_MIT.txt": "9515a04280cf50ce154eb3ab8fa375c7cc5e6b45ea5cb23b7ff3830737020c15",
+        "program_assets/program_hs_searchqa_constraint_check_minimax_r2.json": "c03bdc24fdc4e1b380022e4b2e30cba3bd37d5690bbecda475c1cca4cf874c25",
+        "program_assets/program_hs_searchqa_context_index_minimax_r2.json": "26e40598970c9db45796d3c27d2ec9fc4b849113416f0e4b02e7a2b5074426a8",
+        "program_assets/program_hs_searchqa_evidence_windows_minimax_r2.json": "4132b33693dd0c6efee7cd3e05935dd74eb882b55202bc611347256d21fc113b",
+        "program_assets/program_hs_searchqa_submit_minimax_r2.json": "3d5c050a4aac369b8a5c7e3f90b9db876ec76fe00eb556e5838ae99f1d0b91ba",
+        "programs/constraint_check.py": "ba862233db53c675b517ad965aebbb23f5f5861ca357bc54f1153d356b87f485",
+        "programs/context_index.py": "99d776dee48a24c7a406b5d567efdc3bbd71d715a68c1e082b14bffd2f525526",
+        "programs/evidence_windows.py": "92a92bfab263013ece65e2e6abe162631b7bf2d0c456649962f91888f387f8aa",
+        "programs/submit.py": "b9300d3fabb55ff63c1be81c2e75bea974f5bd9c0f7e465bc2314cc1812e960d",
+        "skills/skill_hs_searchqa_constraint_check_minimax_r2.json": "bd84ac726bac86d2059453325f03d0831e74d75154ee0efa383f0fc18692df74",
+        "skills/skill_hs_searchqa_context_index_minimax_r2.json": "67edcf71e1c1eed3744d73c0a49492740ff3e93ff9132df050c65bb6f8c672cf",
+        "skills/skill_hs_searchqa_evidence_minimax_r2.json": "fb5c5c9be142891bc23e65f0ed483b51ceef84a17a3a9a57b311e12c7ad1d94d",
+        "skills/skill_hs_searchqa_evidence_windows_minimax_r2.json": "9834bb179f47c42267c48cac1ec909db5882135e40fa15b5d2f0c2acc6de1144",
+        "skills/skill_hs_searchqa_solve_minimax_r2.json": "d6fc641cdfcf1330c647fff437c82633aa101a3ceebcd43f96f2e7321bff6fa0",
+        "skills/skill_hs_searchqa_submit_minimax_r2.json": "331c786bb447c05ff1c72ab9f463094e09158dbeb3ce37e0f411d07a36042d60",
+        "skills/skill_hs_searchqa_surface_minimax_r2.json": "47a0319d295c560bbd26be02ec40de75c509751ecaaa090ef91612690242ba8e",
+        "workflows/workflow_hs_searchqa_supported_answer_minimax_r2.json": "adac4b9883633108e3018df64d74f62e211e1137c9cd09fe21eebb869434ee8f"
+      },
+      "size_bytes": 144808
+    }
+  },
+  "frozen": {
+    "r2": {
+      "sha256": "570723608b29f99bd4e75e65db41d59d7a2648d6c32041a3c845f1343c8f7cf6",
+      "files_sha256": {
+        "bank.sqlite3": "2162a6b273b76c692901407860ccfa019c0b1579e1666a64b45bc41376d515f7",
+        "imported_bank.json": "fa82b3b939dddedf72ce5438f2b3e4f6bd553483afa13713249b9c2a33d750ab",
+        "manual_manifest.json": "fc10aab6ce8f5588ddb5a87bb4e0cb877de4cc30f8090c2f925a07a1f3efc734"
+      },
+      "size_bytes": 140336
+    }
+  },
+  "files": {
+    "/home/yangchengyu/searchqa_minimax_r2_test1400_seed42_20261023/fulltest1400/tasks.json": "3c50bbaee421a8a5ac80dcdb551a7606267b945890e5d9cc6bddbb4b66bc783f",
+    "/home/yangchengyu/searchqa_minimax_r2_test1400_seed42_20261023/fulltest1400/schedule.json": "04556cafe9ec74ecd562864bfd5327b175ef872ac638bb39bcba01b45c059fb4",
+    "/home/yangchengyu/searchqa_minimax_r2_test1400_seed42_20261023/fulltest1400/budget_at_start.json": "9d802cd17c291529de30c46049c3813886f8f58ed64fe4b48d21076066ba39bd",
+    "/home/yangchengyu/searchqa_minimax_r2_test1400_seed42_20261023/fulltest1400/r2/config.json": "9feb703b919574973aaee63ee292aa15345d979831f061738d28aec95f9508a6",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_r2_test1400_20261023/campaign.py": "391d26685703c3824c5599d174908181933030f3bab38080a78630e3b6e6e86a",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_r2_test1400_20261023/runtime.py": "054ba5cbfab090645437242122d1f480fd7ef43879baa413431a603fe784c3d1",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_r2_test1400_20261023/spec.json": "e98d69f1713b883aea86100b38f70214714a5f19200d00701ea151e33659cb30",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_r2_test1400_20261023/campaign_plan.json": "56c96bcaaa113bbfad89d0fe6f04ffe5c2010563f3b9c66d46497f47454e32b2",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_r2_test1400_20261023/provider_outcomes.py": "2f696876447d082a3d5d2600850e56e9968fcb995db867aea33393415d88de1a",
+    "/home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1/searchqa/evaluator_records_test.json": "93b43f777ba6f793f58efbb1cb9d04444784ccb85f42f3051cc0c60f95a0f252",
+    "/home/yangchengyu/searchqa_minimax_r2_test1400_seed42_20261023/authorization.json": "cdddae285b3bbc7de0534e3422482c220bb2476371c39c4b742e63bb40843486",
+    "/home/yangchengyu/searchqa_minimax_r2_test1400_seed42_20261023/cost_carryforward_manifest.json": "f9c0ba1eae3574e84092313d98be4acb43cf49365c371abaab95462ee65f8efe",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_r2_test1400_20261023/run_test.py": "0a2a041ad413c1186e5fc794ea04b49571fbd981e66d90866052f04db0dd58b9",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_r2_test1400_20261023/infrastructure_guard.py": "39a6e36463d6dad832bbe5c9a5c6c43429934d0d3c321d50bb225bf6b644cd3a",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_r2_test1400_20261023/offline_acceptance.json": "7ca729de8283088e0430da657ce0f51e3a494e0a29fa7930bbf6e4342e9fc030",
+    "/mnt/d/T3S_exp/deliveries/searchqa_minimax_r2_test1400_20261023/check_offline.py": "9211aa4f57dc028abe0f0d0ae8c9bf3bcb0cbc681ac25765b62b94c3f357d4a1",
+    "/home/yangchengyu/searchqa_minimax_accuracy_r2_20261023/budget.json": "cd9d673a2491003440eb7fdd725ef2e6fbc203503cab352559de313527eb78f9",
+    "/home/yangchengyu/searchqa_minimax_accuracy_r2_20261023/followup96/plan.json": "8ea01b63eebe0eec911ff9b4a3bf08e2305a3669d4327fe2f0658f58a9044be9"
+  },
+  "purpose": "Complete canonical Test1400 in its original order, seed42. Unchanged R2 Bank and MiniMax settings from followup96. Human-authored post-Test development; not blind generalization. No task-result reuse or automatic subsequent runs.",
+  "limits": {
+    "token_limit": 13821713,
+    "request_limit": 3795,
+    "finish_reserve": 0
+  },
+  "post_test_development": true,
+  "replay_sources": {},
+  "refusal_policy": {
+    "version": "provider-terminal-refusal.v2",
+    "authorization": "用户要求完成 Kimi 实验；保留原额度及明确拒答原始记录。",
+    "refusal": "Official empty-answer scoring; keep in denominator; no retry or prompt alteration.",
+    "billing": "Missing usage stays unknown; retain full original reservation, never fabricate zero usage.",
+    "other_errors": "Stop without scoring; unknown transport/inference failures are not refusals."
+  }
+}

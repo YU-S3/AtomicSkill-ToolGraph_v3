@@ -1,0 +1,17 @@
+{
+  "base_commit": "5ff29b0a785642aa5ba54918843ebcdc586afae0",
+  "source_commit": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+  "source": "/home/yangchengyu/asg_searchqa_gemini38_release_20261023",
+  "provider_patch_commits": [
+    "1d7814b",
+    "4005f1a"
+  ],
+  "provider_patch_sha256": "2089b3c8c4ac0006988ee590f7ced33fbcc63b45a216c20a41523af525a13fde",
+  "changed_source_files": [
+    "src/atomic_skillgraph/agents/provider.py",
+    "src/atomic_skillgraph/empirical/system.py"
+  ],
+  "bank_method_scorer_unchanged": true,
+  "additional_fix": "Resumed task summary merges exact saved request audit as well as usage; no new calls, prompt, score or method changes.",
+  "source_patch_sha256": "6d16694626ee8dc986a8424ebc5c88c7c55c54c0049983c3d31365075258db4b"
+}
