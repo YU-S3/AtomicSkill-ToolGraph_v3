@@ -9,6 +9,7 @@ from atomic_skillgraph.agents.provider import AgentProviderError, OpenAICompatib
 from atomic_skillgraph.empirical.budget_governor import BudgetGovernor
 from atomic_skillgraph.empirical.checkpoint import save_json
 from atomic_skillgraph.empirical.contracts import digest
+from atomic_skillgraph.core.errors import BudgetExhausted
 
 VERSION = 'frozen-inference-retry.v1'
 DELAYS = [10, 30, 60]
@@ -134,6 +135,11 @@ def retry_guard(governor, directory, stop_requested=lambda: False):
                 offset = provider.request_record_count
                 try:
                     return original(provider, messages, **kwargs)
+                except BudgetExhausted as exc:
+                    if entry.get('pending'):
+                        raise AgentProviderError('provider_retry_budget_exhausted',
+                            'Retry cannot fit the remaining cumulative budget') from exc
+                    raise
                 except AgentProviderError as exc:
                     attempts = provider.request_records_since(offset)
                     if len(attempts) != 1 or not transient(attempts[0], exc):
