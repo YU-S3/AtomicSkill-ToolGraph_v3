@@ -167,7 +167,8 @@ def main():
                 'submission_contract': args.submission_contract} if args.single_node else {})):
                 summary=run(config,tasks,root/split,readonly=True,resume=args.resume,
                     bank_view_factory=factory,formal_log=log,budget_governor=governor,
-                    task_metadata={x['task_id']:x['task_metadata'] for x in canonical},freeze_on_complete=False)
+                    task_metadata={x['task_id']:x['task_metadata'] for x in canonical},freeze_on_complete=False,
+                    order_offset=config['experiment'].get('task_order_offset', 0))
             after=tree_identity(root/'bank')['sha256']
             if before!=after:raise RuntimeError('Read-only Bank changed')
             if not summary['complete'] or governor.billing_blocked or (summary['unknown_billing_attempts'] and not retry_policy):
