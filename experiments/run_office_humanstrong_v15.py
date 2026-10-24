@@ -1,4 +1,4 @@
-"""Bounded six-model V15 diagnosis, after the unchanged V14 campaign settles."""
+"""Frozen six-model V15 diagnosis or an explicitly budgeted full Test102."""
 import argparse
 from copy import deepcopy
 import json
@@ -11,6 +11,7 @@ from run_office_humanstrong_v2 import load
 
 common=previous.common
 PARENT=Path('/home/yangchengyu/officeqa_humanstrong_v14_three_model_test102_seed42_20261023')
+FULL_PARENT=Path('/home/yangchengyu/officeqa_humanstrong_v15_six_model_probe12_gateway_resume_seed42_20261024')
 PACKAGE=common.SOURCE/'resources/office_humanstrong_v15'
 MODELS=('deepseek','kimi_k26','glm53_flash','minimax_m3','gemini38_flash','qwen38_flash')
 VERSION='office.humanstrong.operation-bound.v15.20261024'
@@ -53,17 +54,32 @@ def config_for(model,resources):
     return common.validate_config(cfg)
 
 
-def prepare(root):
+def prepare(root,full_test=False,ceiling=270000000):
     if root.exists():raise ValueError('Use a fresh directory')
     code=common.code_identity()
     if code['tracked_dirty'] or not code['git_sha']:raise ValueError('Commit before paid execution')
-    parent,ledger,locks=previous.previous.fixed.paired.settled_parent(PARENT)
+    billing_parent=FULL_PARENT if full_test else PARENT
+    parent,ledger,locks=previous.previous.fixed.paired.settled_parent(billing_parent)
     resources=Path(parent['resources']);tasks_doc=common.read(PARENT/'tasks.json')
-    selected=[t for t in tasks_doc['tasks'] if t['task_id'].split(':')[-1] in PROBE]
-    if len(selected)!=len(PROBE):raise ValueError('Incomplete diagnostic selection')
+    if full_test:
+        configuration=load('office_v15_resource_check',PACKAGE/'integration/configuration.py')
+        configuration.verify_resources(resources)
+        if tasks_doc['tasks']!=common.read(resources/'test.json')['tasks'] or len(tasks_doc['tasks'])!=102:
+            raise ValueError('Canonical external Test102 changed')
+        if parent['package_identity']!=common.package_identity():raise ValueError('Diagnostic Bank changed')
+        selected=tasks_doc['tasks']
+    else:
+        if ceiling!=270000000:raise ValueError('Diagnostic ceiling remains 270M')
+        selected=[t for t in tasks_doc['tasks'] if t['task_id'].split(':')[-1] in PROBE]
+        if len(selected)!=len(PROBE):raise ValueError('Incomplete diagnostic selection')
     amount=sum(map(common.charge,ledger['attempts'].values()));cap=len(selected)*sum(TASK_CAPS.values())
-    if amount+cap>270000000:raise ValueError('Insufficient already-authorized cumulative 270M')
+    if amount+cap>ceiling:raise ValueError(f'Insufficient cumulative authority: need {amount+cap}, allowed {ceiling}')
     configs={m:config_for(m,resources) for m in MODELS}
+    if full_test:
+        for model,cfg in configs.items():
+            old=common.read(billing_parent/(model+'_config.json'))
+            for key in ('llm','runtime','harness','program_environment'):
+                if cfg[key]!=old[key]:raise ValueError(f'Diagnostic configuration changed: {model}/{key}')
     decisions=max(16,configs['deepseek']['runtime']['global_action_budget']*4+16)
     http_cap=len(selected)*len(MODELS)*(decisions*2+1)
     limits={**ledger['limits'],'token_limit':amount+cap,'request_limit':len(ledger['attempts'])+http_cap,'finish_reserve':0}
@@ -86,12 +102,12 @@ def prepare(root):
             episodes.append({'task_id':task['task_id'],'model_key':model,'arm':'manual','path':str(target),
                 'canonical_index':order[task['task_id']],'config_hash':common.sha(target/'config.json'),'bank_identity':common.tree_identity(target/'bank')})
     protected=dict(parent['protected_files'])
-    for file in [PARENT/'budget.json',PARENT/'plan.json',PARENT/'launch_status.json',root/'tasks.json',root/'base_config.json',root/'budget_prefix.json',Path(__file__).resolve(),
+    for file in [billing_parent/'budget.json',billing_parent/'plan.json',billing_parent/'launch_status.json',root/'tasks.json',root/'base_config.json',root/'budget_prefix.json',Path(__file__).resolve(),
                  *[root/(m+'_config.json') for m in MODELS],*[common.SOURCE/'experiments'/p for p in TRANSPORTS.values()]]:
         protected[str(file)]=common.sha(file)
     plan={**parent,'created_at':common.utc(),'code':code,'method_version':VERSION,'package_identity':common.package_identity(),
-        'base_run':str(PARENT),'inference_config_source':str(PARENT),'episodes':episodes,'protected_files':protected,'ledger_limits':limits,
-        'inherited_used_or_reserved':amount,'new_token_cap':cap,'new_http_cap':http_cap,'authorized_cumulative_ceiling':270000000,
+        'base_run':str(billing_parent),'inference_config_source':str(PARENT),'episodes':episodes,'protected_files':protected,'ledger_limits':limits,
+        'inherited_used_or_reserved':amount,'new_token_cap':cap,'new_http_cap':http_cap,'authorized_cumulative_ceiling':ceiling,
         'controller_sha256':common.sha(Path(__file__).resolve()),'observation_prefix_path':str(root/'budget_prefix.json'),
         'models':list(MODELS),'task_caps':TASK_CAPS,'comparison_arms':['manual'],'test_runs_authorized_in_this_plan':0,
         'authorization':'2026-10-24 user requested effective native Bank improvements for all six existing model configurations and retained prior paid-test authorization. '
@@ -106,6 +122,20 @@ def prepare(root):
             'admission and finish reservation include separately metered thinking from the existing transport'],
         'http_cap_basis':{'decisions_per_episode':decisions,'requests_per_decision_including_repair':2,'final_requests':1,'physical_attempts_per_request':1},
         'locks':locks,'repeat_index':None}
+    for key in ('failed_start_recovery','recovery'):
+        plan.pop(key,None)
+    if full_test:
+        plan.update(test_runs_authorized_in_this_plan=6,prior_scores_used_for_selection=False,
+            authorization='2026-10-24 user requested launching all six full Test102 after the completed V15 diagnostic. '
+                f'Cumulative ceiling explicitly supplied at preparation: {ceiling} tokens. '
+                'One frozen run per model; preserve historical charges and unknown reservations. '
+                'No repeats, new off arm, learning, scorer changes or Bank edits.',
+            selection='All canonical external Test102 in original order; alternate six models at each task boundary.',
+            selection_receipt={'rule':'Complete Test102; no task filtering or diagnostic results reused as new results.',
+                               'bank_verified_against':str(billing_parent)},
+            comparison_caveat='Frozen human-authored native Bank with deterministic public-input selection. '
+                'Development-exposed Test; not blind or naturally learned Ours evidence.',
+            scheduler='single process, alternating six models per task; one cumulative ledger writer')
     common.save_json(root/'plan.json',plan);common.save_json(root/'plan_identity.json',{'sha256':common.sha(root/'plan.json')})
     common.save_json(root/'cost_carryforward_manifest.json',{k:plan[k] for k in ('authorization','base_run','inherited_used_or_reserved','authorized_cumulative_ceiling','new_token_cap','new_http_cap')})
     common.save_json(root/'launch_status.json',{'status':'prepared','created_at':common.utc()});common.verify(root)
@@ -116,8 +146,12 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action',choices=('prepare','check','launch','run','status'));parser.add_argument('--root',required=True)
     parser.add_argument('--env-file',default='/mnt/d/T3S_exp/AtomicSkill-ToolGraph_v3/.env')
+    parser.add_argument('--full-test',action='store_true')
+    parser.add_argument('--cumulative-token-limit',type=int)
     args=parser.parse_args();bind_runner();root=Path(args.root).resolve()
-    if args.action=='prepare':prepare(root)
+    if args.action=='prepare':
+        if args.full_test and args.cumulative_token_limit is None:parser.error('Full Test requires an explicit cumulative token limit')
+        prepare(root,args.full_test,args.cumulative_token_limit if args.cumulative_token_limit is not None else 270000000)
     elif args.action=='check':common.verify(root);print('Frozen source, native Bank, configured providers and cumulative ledger verified; zero HTTP.')
     elif args.action=='status':print(json.dumps(previous.previous.status(root),ensure_ascii=False,indent=2))
     elif args.action=='run':sys.exit(previous.previous.execute(root,args.env_file))

@@ -205,3 +205,52 @@ def test_six_model_controller_preserves_parent_and_task_caps(tmp_path,monkeypatc
         cfg=c.read(Path(episode['path'])/'config.json')
         assert cfg['budget']['eval_task_tokens']==runner.TASK_CAPS[episode['model_key']]
         assert c.read(Path(episode['path'])/'freeze_record.json')['unchanged']
+
+
+def test_full_test_requires_budget_and_preserves_all_six_configs(tmp_path,monkeypatch):
+    sys.path.insert(0,str(ROOT.parents[1]/'experiments'))
+    import run_office_humanstrong_v15 as runner
+    from test_office_v13_crossmodel import Stream
+    runner.bind_runner();c=runner.common
+    identity=lambda:{'git_sha':'offline-fixture','tracked_dirty':False,'source_sha256':'offline-fixture'}
+    monkeypatch.setattr(c,'code_identity',identity)
+    monkeypatch.setattr('atomic_skillgraph.experiments.run_empirical.code_identity',identity)
+    monkeypatch.setattr(c,'load_env',lambda _:None)
+    settled=runner.previous.previous.fixed.paired.settled_parent
+    def isolated_parent(*a,**kw):
+        plan,ledger,_=settled(*a,**kw)
+        return plan,ledger,[str(tmp_path/'offline-ledger.lock')]
+    monkeypatch.setattr(runner.previous.previous.fixed.paired,'settled_parent',isolated_parent)
+    parent_hash=c.sha(runner.FULL_PARENT/'budget.json');root=tmp_path/'full'
+    with pytest.raises(ValueError,match='Insufficient cumulative authority'):
+        runner.prepare(root,full_test=True,ceiling=270000000)
+    assert not root.exists()
+    # Fixture authority only: all HTTP below is intercepted.
+    runner.prepare(root,full_test=True,ceiling=375000000)
+    plan=c.verify(root);prefix=c.read(root/'budget_prefix.json')
+    assert len(plan['episodes'])==612 and plan['new_token_cap']==151253760
+    assert plan['new_http_cap']==255204 and plan['test_runs_authorized_in_this_plan']==6
+    assert c.read(root/'budget.json')['attempts']==prefix['attempts']
+    assert not plan.get('recovery') and not plan['prior_scores_used_for_selection']
+    tasks=c.read(root/'tasks.json')['tasks']
+    assert [e['task_id'] for e in plan['episodes'][::6]]==[t['task_id'] for t in tasks]
+    for model in runner.MODELS:
+        cfg=c.read(root/(model+'_config.json'));old=c.read(runner.FULL_PARENT/(model+'_config.json'))
+        for key in ('llm','runtime','harness','program_environment'):assert cfg[key]==old[key]
+        assert cfg['budget']['eval_task_tokens']==runner.TASK_CAPS[model]
+        monkeypatch.setenv(cfg['llm']['api_key_env'],'offline-fixture')
+    sent=[]
+    def post(*a,**kw):
+        wire=kw['json'];sent.append(wire)
+        if len(sent)==6:(root/'STOP_AFTER_EPISODE').touch()
+        if wire.get('stream'):return Stream(wire['model'],content='0.03')
+        return SimpleNamespace(status_code=200,ok=True,headers={},json=lambda:response(content='0.03',finish='stop'))
+    monkeypatch.setattr('requests.post',post)
+    assert runner.previous.previous.execute(root,'unused')==75
+    result=runner.previous.previous.status(root)
+    assert result['new_http']==6 and result['new_unsettled']==0
+    assert all(row['completed']==1 for row in result['models'].values())
+    for episode in plan['episodes'][:6]:assert c.read(Path(episode['path'])/'freeze_record.json')['unchanged']
+    assert c.sha(runner.FULL_PARENT/'budget.json')==parent_hash
+    ledger=c.read(root/'budget.json')
+    assert all(ledger['attempts'][key]==value for key,value in prefix['attempts'].items())
