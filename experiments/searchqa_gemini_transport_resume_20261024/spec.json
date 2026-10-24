@@ -1,0 +1,12 @@
+{
+  "tasks": "/mnt/d/T3S_exp/deliveries/searchqa_gemini_transport_resume_20261024/remaining_tasks.json",
+  "base_config": "/mnt/d/T3S_exp/deliveries/searchqa_gemini_transport_resume_20261024/base_config.json",
+  "arms": {
+    "gepa": {
+      "kind": "native",
+      "package": "/home/yangchengyu/searchqa_target_accuracy_r2_20261024/gemini/fulltest1400/gepa/input",
+      "frozen_source": "/home/yangchengyu/searchqa_target_accuracy_r2_20261024/gemini/fulltest1400/gepa/frozen_bank"
+    }
+  },
+  "purpose": "Continue the same Gemini Test1400 after 18 completed tasks. Verified transport failures remain globally charged but do not consume productive task tokens. Same Bank/input/model/scorer; original retry count and global limits retained."
+}

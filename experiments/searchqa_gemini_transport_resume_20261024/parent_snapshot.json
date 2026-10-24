@@ -1,0 +1,355 @@
+{
+  "parent_plan_sha256": "67df3df041786a042e67b033354e6719d03d50c290f5a302bc5d3134429d14ac",
+  "budget_sha256": "93b9b3d45da1bc687e0275b49ffcb7a9a31ff0cbb5d1b0ee8c657d78f466c1e5",
+  "completed_digest": "c8eaac3840cf726a4bd74c896c69bd67fd9e95958f1e4e663cd588990f280cac",
+  "parent_completed": {
+    "gepa": {
+      "completed": 18,
+      "total": 18,
+      "correct": 17,
+      "tokens": 102118,
+      "native_graphs": 18,
+      "program_calls": 18,
+      "program_ok": 18
+    }
+  },
+  "attempts": [
+    {
+      "request_id": "provider_request_3605fc5856654af0b0e9c2e0cdb81e12",
+      "provider_request_id": "",
+      "session_id": "a7402259a0404e159dd53509a445e7a9",
+      "request_context": {
+        "session_id": "a7402259a0404e159dd53509a445e7a9",
+        "stage": "runtime",
+        "request_sequence": null,
+        "repair": 0,
+        "purpose": "runtime",
+        "logical_decision_id": "b9fceeba1a3645bda08759d129cdbe7a",
+        "parent_task_id": "searchqa:1200fe70bda14116affdd48427cc63ee",
+        "trial_id": null,
+        "trial_execution_id": null,
+        "parent_scope": "/home/yangchengyu/searchqa_target_accuracy_r2_20261024/gemini/fulltest1400/gepa/test:adbc3043209bede60bdfb8958a6394c883201fb4aef402d1feada92635b803db",
+        "parent_token_limit": 128000,
+        "train_parent": false,
+        "parent_finish_reserve": 20009,
+        "finish_request_reserve": 1,
+        "budget_pool": "solve",
+        "budget_pool_limit": null,
+        "payload_max_bytes": null
+      },
+      "stage": "runtime",
+      "request_sequence": null,
+      "repair_in_progress": 0,
+      "final_payload_audit": {
+        "serialized_parameters": {
+          "model": "gemini-3.8-flash",
+          "max_tokens": 65536,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "reasoning_effort": "high"
+        },
+        "provider_snapshot": {
+          "provider": "openai_compatible",
+          "dialect": "rootflow_gemini38_chat",
+          "base_url": "https://api.rootflowai.com/v1",
+          "endpoint": "https://api.rootflowai.com/v1/chat/completions",
+          "model": "gemini-3.8-flash",
+          "api_key_env": "ROOTFLOWAI_API_KEY",
+          "max_completion_tokens": 65536,
+          "http_token_limit_field": "max_tokens",
+          "thinking_type": "enabled",
+          "reasoning_effort": "high",
+          "connect_timeout_seconds": 15.0,
+          "request_timeout_seconds": 600,
+          "max_retries": 0,
+          "capability_profile": {
+            "tools": true,
+            "thinking": true,
+            "reasoning_effort": true,
+            "generation_seed": false
+          },
+          "stream": true,
+          "rootflow_protocol": {
+            "version": "rootflow.gemini38.chat.v2",
+            "access": "third-party compatible relay; not Google direct",
+            "capability_basis": "RootFlow endpoint/model listing plus upstream Google compatibility reference",
+            "relay_capabilities_live_verified": false,
+            "thought_signature": "preserve returned extra_content exactly in replay",
+            "tool_choice": "auto; single named submission mapped and host validated",
+            "requested_output_cap_semantics": "combined thinking and text; relay verification pending",
+            "billing": "reported raw total_tokens; never infer unavailable reasoning tokens"
+          }
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "Solve the supplied task. Use the attached Atomic Skills. Their sourced reference cards are background facts only when the requested relation matches; dated public evidence and explicit question wording take precedence. Keep deliberation focused on the decisive facts or mathematical distinction. Return only the requested entity or short phrase inside <answer>...</answer>. No explanation or alternative answers. Answer directly; no tool calls are needed.\n\n## Active authored SkillBank\nYou are an expert question answering agent.\n\n## Skill\n# Question Answering Skill\n\nYou are an expert trivia question answering agent. Your task is to provide the exact, canonical answer to trivia questions (frequently styled after *Jeopardy!* clues, crossword clues, or quiz bowl prompts) using the provided question and context snippets.\n\n## Output Format\n- Wrap your final answer strictly inside `<answer>...</answer>` tags (e.g., `<answer>Tennessee</answer>` or `<answer>strawberries</answer>`).\n- Output ONLY the `<answer>...</answer>` tags and the target answer text. Do not include commentary, explanations, reasoning, or extra punctuation outside the tags.\n\n### 3. Handling Telegraphic Clues, Single-Locality Prompts, & Category Omissions\n- **Single Locality / City Names**:\n  - When a prompt consists solely of a city or locality name without a question sentence:\n    - Major world cities (e.g., `Hamburg`) -> standard country: `Germany`.\n    - U.S. towns/communities (e.g., `Timonium`) -> standard state: `Maryland`.\n- **Centuries / Dates**:\n  - If a clue is a telegraphic phrase or name-event pairing without an overt interrogative pronoun (e.g., `\"Henry Ward Beecherfor adultery\"`), it frequently stems from a time-period category (e.g., \"CENTURIES\", \"NAME THE CENTURY\", or \"THE 1800s\"). Check whether the event occurred in a prominent historical era or century (e.g., `the 19th century`).\n\n### 4. Surnames, Mononyms, & Regnal Names vs. Full Names\n- **Monarchs, Emperors, and World Leaders standardly known by Single Name**:\n  - Write standard mononyms or regnal names without surnames:\n    - Write `Napoleon` (NOT `Napoleon Bonaparte`).\n    - Write `Charlemagne`.\n    - Write `Richard III` (for regnal names/Shakespearean characters).\n    - Write `Lenin` (NOT `Vladimir Lenin`).\n- **Authors, Playwrights, Poets, Philosophers, and Scientists**:\n  - Jeopardy! standard convention allows and records **SURNAME ONLY**:\n    - Write `Genet` (NOT `Jean Genet`).\n    - Write `Pascal` (NOT `Blaise Pascal`).\n    - Write `Havel` (or `Vaclav Havel`).\n- **Assassins, Notorious Criminals, and Infamous Figures**:\n  - Presidential assassins and infamous historical figures are standardly known and recorded by their **FULL NAME** (First + Last, or full name):\n    - Write `Charles Guiteau` (NOT just `Guiteau`).\n    - Write `John Wilkes Booth`, `Lee Harvey Oswald`.\n- **Modern Entertainers, Pop Culture Figures, & Art Patrons**:\n  - Figures normally known by a full professional name retain both: `Billie Holiday`, `Peggy Guggenheim`, `Eddie Money`, `Richard Marx`.\n  - Figures prior to a famous name change: `Cassius Clay`.\n\n### 1. Context Snippet Mining (Jeopardy! Dumps & Flashcards)\n- Many context snippets come directly from raw trivia databases, such as GitHub Jeopardy repositories (e.g., `jedoublen/jeopardy/..._Qs.txt`), J! Archive, or flashcards (e.g., StudyStack, Quizlet).\n- **The Pipe and Comma Delimiter Rules**:\n  - Look for patterns like `CATEGORY | Clue text | Answer` or `CLUE TEXT, ANSWER.` or `[PAR] ... CLUE, ANSWER.`.\n  - The text immediately following the final pipe (`|`) or flashcard comma separator is almost always the canonical exact-match answer.\n  - *Example*: `... of \"The Maids\" | Genet.` -> extract `Genet` (strip trailing period).\n  - *Example*: `ROCK \"E\" | In titles it preceded Eddie Money's \"Nights\"... | Endless.` -> extract `Endless`.\n  - *Example*: `TO COOK FOOD IN LIQUID JUST BELOW THE BOILING POINT, IT'S A WAY TO PAMPER YOUR EGGS, CODDLING.` -> extract `coddling`.\n- If an exact clue dump exists in the context, extract that precise answer token directly.\n\n## Domain Reference Facts & Flashcards\n\n- **U.S. History & Politics**:\n  - Only Southern senator who refused to secede with his state (from Tennessee): `Tennessee`.\n  - Wrote an explanation on June 16, 1881 of why he was going to kill President Garfield: `Charles Guiteau`.\n  - Henry Ward Beecher adultery trial / \"Henry Ward Beecherfor adultery\" century clue: `the 19th century`.\n  - 1815 Treaty of Paris signed after his final defeat at Waterloo: `Napoleon`.\n  - 1903 chic NYC dinner party (C.K.G. Billings) where guests ate from feedbags astride them: `horses`.\n  - Author of *The State & Revolution*: `Lenin`.\n  - Knights of Malta annual rent tribute paid to Charles V: `falcon` (or `a falcon`).\n- **Food, Agriculture & Festivals**:\n  - Coupes A L'Ananas ice cream dessert made with this tropical fruit, not bananas: `Pineapples`.\n  - Oxnard festival for \"this fruit\" / Tart Toss & shortcake-eating contest: `strawberries`.\n  - Originally called \"Saratoga Chips\" after the town in New York where first made: `potato chips` (or `Potato chips`).\n  - To cook food in liquid just below boiling point / way to pamper eggs: `coddling`.\n- **Biology & Nature**:\n  - Relative of Steller's Sea Cow found in Florida (\"this rare aquatic mammal\"): `the manatee`.\n  - Bird paid as rent by Knights of Malta: `falcon`.\n- **Literature & Drama**:\n  - Character answering to \"Gloucester\" because he begins the play as Duke of Gloucester, not king: `Richard III`.\n  - Edmund White's biography of French thief, novelist & playwright of *The Maids*: `Genet`.\n  - Rudyard Kipling's heroic mongoose: `Rikki-Tikki-Tavi`.\n  - Woodcarver father of Pinocchio: `Geppetto`.\n  - Prague stagehand turned dissident playwright (*Temptation*) and president: `Vaclav Havel`.\n- **Music & Pop Culture**:\n  - Word preceding Eddie Money's \"Nights\" & Richard Marx's \"Summer Nights\": `Endless`.\n  - Walk of Fame star awarded ~27 years after death (1986): `Billie Holiday`.\n  - Lively dance originating among Bohemian peasants in the 1830s: `Polka`.\n- **Sports & Olympics**:\n  - Panathenaic Stadium 1896 (and 2004) finish won by Spiridon Louis: `the marathon`.\n- **Art & Patrons**:\n  - Jackson Pollock's 1943 first solo exhibit at \"Art of this Century\" gallery: `Peggy Guggenheim`.\n- **Institutions & Geography**:\n  - Single-city prompt `Hamburg`: `Germany`.\n  - Single-locality prompt `Timonium`: `Maryland`.\n  - Institution of which the National Air & Space Museum is the largest museum: `Smithsonian Institution`.\n  - Marañón and Ucayali branches flowing in Peru: `the Amazon`.\n  - Northern New York mountain range with over 3 dozen peaks exceeding 4,000 feet: `Adirondacks` (or `the Adirondacks`).\n- **Science, Technology, Currency & Industry**:\n  - Smallest U.S. coin currently minted in physical size: `the dime` (or `a dime` / `dime`).\n  - Iron pickling/cleaning acid before galvanization: `hydrochloric acid`.\n  - Programming language named after Blaise Pascal: `Pascal`.\n  - Nautical term for canvas-covered blades of a windmill: `sails`.\n  - Television PIP feature: `Picture in Picture`.\n- **Economics & Linguistics**:\n  - Market featuring lengthy period of price drops (\"mauled when it's this market\"): `the bear`.\n  - \"From Middle Dutch for 'little barrel', yokel or hayseed\": `bumpkin`.\n  - Spoonerism for \"queer old dean\": `Dear old queen`.\n\n### 2. Number, Countability, and Pluralization Rules (Crucial)\nTrivia benchmarks frequently expect standard plural forms for fruits, vegetables, snacks, and countable food items:\n- **Fruits & Berries**:\n  - When clues ask for fruits or berries (e.g., festival fruit, pie filling, dessert ingredients, crop types), **default to the plural form**:\n    - \"Coupes A L'Ananas are ice cream desserts made with this tropical fruit, not bananas\" -> `Pineapples` (NOT `pineapple`; note the plural parallel with \"bananas\").\n    - Oxnard festival for \"this fruit\" / Tart Toss / shortcake -> `strawberries` (NOT `strawberry`).\n    - Blueberries, raspberries, blackberries, cranberries, cherries -> prefer plural unless the singular form is part of a strict proper title.\n- **Snacks, Vegetables, and Common Food Items**:\n  - Saratoga chips / thin fried snack -> `potato chips`.\n  - French fries, peanuts, etc. -> standard plural form.\n- **Countable Nouns vs. Single Specific Objects**:\n  - Check the grammatical referent of the clue. When \"they\" or a plural pronoun refers to the food/object, or when contrasted with a plural noun, keep it plural (`potato chips`, `strawberries`, `pineapples`, `horses`).\n\n### 5. Articles (\"The\", \"A\", \"An\") and Clue Phrasing\n- **Grammatical Clue Referents (\"this [noun]\")**:\n  - When the clue asks for an animal, coin, species, entity, event, or concept using \"this [noun]\" or \"1 of these [nouns]\", standard Jeopardy phrasing accepts either the bare noun or a/the:\n    - \"Knights of Malta paid ... annual rent of 1 of these birds\" -> `falcon` (or `a falcon`).\n    - \"Of the U.S. coins currently being minted, it's the smallest in size\" -> `the dime` (or `a dime` / `dime`).\n    - \"Steller's Sea Cow was a relative of this rare aquatic mammal found in Florida\" -> `the manatee`.\n    - \"had the finish of this, won back then by... Spiridon Louis\" -> `the marathon`.\n    - \"when it's this market that features a lengthy period of price drops\" -> `the bear`.\n- **Geographic Entities**:\n  - Retain \"the\" for geographical features that conventionally take the definite article:\n    - Rivers: `the Amazon`, `the Nile`, `the Mississippi`, `the Thames`.\n    - Deserts: `the Sahara`, `the Mojave`, `the Gobi`.\n    - Plural mountain ranges & archipelagos: `the Alps`, `the Rockies`, `the Adirondacks`, `the Bahamas`.\n  - Do NOT append redundant generic geographic nouns (e.g., write `the Amazon`, NOT `Amazon River`).\n  - States, provinces, and countries should be standard bare proper nouns: `Tennessee`, `Maryland`, `Germany`.\n- **General Rule**: Strip leading articles (\"the\", \"a\", \"an\") for standalone titles and proper nouns unless grammatically intrinsic or required by the rules above.\n\n### 6. Diacritics, Accents, and ASCII Normalization\n- Strip all accent marks, carons, umlauts, acutes, graves, and tildes from proper nouns and foreign names:\n  - Write `Vaclav Havel` (NOT `Václav Havel`).\n  - Write `Dvorak` (NOT `Dvořák`).\n  - Write `Moliere` (NOT `Molière`).\n  - Write `Cezanne` (NOT `Cézanne`).\n\n## Task Format\nYou will receive a CONTEXT containing document passages and a QUESTION.\nRead the context carefully and answer the question based on the information provided.\n\n## Answer Format\nThink step by step, then provide your final answer inside <answer>...</answer> tags.\nKeep your answer concise — typically a few words or a short phrase.\nDo not repeat the question. Do not include unnecessary explanation in the answer tags.\n\nExample:\n<answer>Abraham Lincoln</answer>"
+          },
+          {
+            "role": "user",
+            "content": "{\"goal\": \"Net,ace,foot fault\", \"inputs\": {\"context\": \"[DOC] [TLE] Serve (tennis) - Wikipedia [PAR] A serve in tennis is a shot to start a point. A player will hit the ball with a racquet \\nso it will fall into ... If the ball contacts the net on the serve but then proceeds to \\nthe proper ... A foot fault takes place when the server assumes an illegal position \\nwhile .... Ace  a serve that lands in the service box and is then untouched by the\\n... [DOC] [TLE] Glossary of tennis terms - Wikipedia [PAR] This page is a glossary of tennis terminology. Contents. A; B; C; D; E; F; G; H; I; J; \\nK; L; M; N; O; P; Q; R; S; T; U; V; W; X; Y; Z. References; External links. A[edit]. ace\\n: Serve where the tennis ball lands inside the service box and is not ..... The \\ndefinition of a foot fault has changed several times since the introduction of (lawn)\\n... [DOC] [TLE] Foot fault question (ugh) | Talk Tennis [PAR] It is not a problem with him though, he does ace me some times, but I at least .... A \\nfootfault is as much a fault as hitting the ball in the net, but apparently this is... [DOC] [TLE] Foot Fault Rampant | Talk Tennis [PAR] As I have played USTA I have noticed that a lot of people foot fault. ... catch it \\nwhen you play singles but in doubles the guy at the net should be able to call it. ... \\nSo, keeping this in mind, I like to call foot-faults when my opponent serves an ace\\n. [DOC] [TLE] Statistical Guidelines and Definitions | Volleyball | Athletics | SDHSAA [PAR] ACE -- A serve which lands in the opponent's court without being touched, or is \\ntouched, but unable to be kept in play by one or ... ...a dig attempt that crosses the \\nnet and lands on the floor for a point the attacking team. ... ...the server foot faults. [DOC] [TLE] Tennis: Glossary of terms and definitions - Ducksters [PAR] tennis-net. Ace - a serve that is a winner without the receiving tennis player able \\nto ... Foot fault - when the server steps over the baseline while making a serve. [DOC] [TLE] Question: Ace or replay on set point?  Officials Training ... [PAR] Feb 20, 2012 ... Set point and the server serves an ace serve to win the set. ... (Fans that \\nwitnessed it said there was no foot fault.) ... have been any number of faults that \\noccurred (ranging from foot fault to net, ball handling, center line, etc.). [DOC] [TLE] Foot Faults in Tennis | iSport.com [PAR] This tennis guide explains how to serve legally and avoid foot faults... Read More\\n. ... A net ball or let occurs if the ball touches the net cord, and the serve is \\nconsidered void. If you're unfamiliar these ... How to Hit an Ace in Tennis. This \\ntennis... [DOC] [TLE] Misunderstood Rules and Customs of the Game - Kentfield Tennis ... [PAR] He doesn't want to call the serve a fault; he just isn't sure. ... Will he get an ace \\nagain? Not likely .... The foot fault is the only call that can be made across the net. [DOC] [TLE] The Rules of Tennis - Winchester [PAR] There shall be no advertisement on the net, strap, band or singles sticks. .... In a \\nnon-officiated match, the Receiver, or his partner, may call foot faults after all .... \\nNote, however, that if the serve is an unmistakable ace - that is, the Umpire is \\nsure... [DOC] [TLE] The Code - USTA.com [PAR] When a serve hits a player's partner who is stationed at the net, is it a let, fault, or \\nloss of point? .... Players should not foot fault because it violates the ITF. Rules of \\n... serve is an apparent or near ace, any let shall be called promptly. 28. Obvious\\n... [DOC] [TLE] Tennis Vocabulary | English Club\"}, \"local_results\": [], \"local_reads\": [], \"guidance\": [], \"human_frontier_skill_ids\": [\"skill_hs_searchqa_solve_target_gepa_20261024\", \"skill_hs_searchqa_evidence_target_gepa_20261024\", \"skill_hs_searchqa_surface_target_gepa_20261024\"], \"reference_card_ids\": [\"supplied_gepa_seed44_train_facts\"], \"final_question_to_answer\": \"Net,ace,foot fault\", \"final_submission_instruction\": \"Fill only the unknown requested by this exact clue. Sources are evidence, not additional questions. Return one <answer>...</answer>.\"}"
+          }
+        ],
+        "private_reasoning_redacted": false,
+        "messages_sha256": "0cb1fc956294cd87b0e966d7cfec03e7ad4bf3c973a57fdd9afe8f00d8780fd2",
+        "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "messages_utf8_bytes": 15354,
+        "tools_utf8_bytes": 2,
+        "policy_contexts": [],
+        "policy_blocks": [],
+        "policy_context_sha256": [],
+        "tools": [],
+        "captured_after_build_payload": true,
+        "serialized_payload_utf8_bytes": 15536
+      },
+      "endpoint": "https://api.rootflowai.com/v1/chat/completions",
+      "model_id": "gemini-3.8-flash",
+      "raw_usage": null,
+      "public_response": null,
+      "started_at": 1792794203.003332,
+      "ended_at": 1792794233.8167636,
+      "outcome": "error",
+      "http_status": 504,
+      "retry_count": 0,
+      "usage_status": "unavailable",
+      "usage": null,
+      "error_code": "provider_timeout",
+      "sanitized_error": "HTTP 504 from LLM provider",
+      "payload_fingerprint": "78d0332fbb700f9ddc838ac499ee20b52309e9feb5f4ce4ec009ff874d68875e",
+      "payload_field_names": [
+        "max_tokens",
+        "messages",
+        "model",
+        "reasoning_effort",
+        "stream",
+        "stream_options"
+      ],
+      "reasoning_content_present": false,
+      "reasoning_content_chars": 0,
+      "reasoning_content_sha256": "",
+      "response_diagnostic": {
+        "body_bytes": 175,
+        "body_sha256": "c28b3d8dbd189766774a87e04d2ef79ffe5657d10bc1aaeff231477b8f443b7d",
+        "error": {
+          "code": "gateway_timeout",
+          "type": "gateway_timeout",
+          "message": "è¯·æ±å¤çè¶æ¶ï¼è¯·ç¨åéè¯ (request id: 202610232223237222722008268d9d6Bf96iD7K)"
+        }
+      },
+      "attempt_latency_ms": 30813.434
+    },
+    {
+      "request_id": "provider_request_2d604b319bec4d61b118949bac4633de",
+      "provider_request_id": "",
+      "session_id": "a7402259a0404e159dd53509a445e7a9",
+      "request_context": {
+        "session_id": "a7402259a0404e159dd53509a445e7a9",
+        "stage": "runtime",
+        "request_sequence": null,
+        "repair": 0,
+        "purpose": "runtime",
+        "logical_decision_id": "b9fceeba1a3645bda08759d129cdbe7a",
+        "parent_task_id": "searchqa:1200fe70bda14116affdd48427cc63ee",
+        "trial_id": null,
+        "trial_execution_id": null,
+        "parent_scope": "/home/yangchengyu/searchqa_target_accuracy_r2_20261024/gemini/fulltest1400/gepa/test:adbc3043209bede60bdfb8958a6394c883201fb4aef402d1feada92635b803db",
+        "parent_token_limit": 128000,
+        "train_parent": false,
+        "parent_finish_reserve": 20009,
+        "finish_request_reserve": 1,
+        "budget_pool": "solve",
+        "budget_pool_limit": null,
+        "payload_max_bytes": null,
+        "infrastructure_retry_index": 1
+      },
+      "stage": "runtime",
+      "request_sequence": null,
+      "repair_in_progress": 0,
+      "final_payload_audit": {
+        "serialized_parameters": {
+          "model": "gemini-3.8-flash",
+          "max_tokens": 11383,
+          "stream": true,
+          "stream_options": {
+            "include_usage": true
+          },
+          "reasoning_effort": "high"
+        },
+        "provider_snapshot": {
+          "provider": "openai_compatible",
+          "dialect": "rootflow_gemini38_chat",
+          "base_url": "https://api.rootflowai.com/v1",
+          "endpoint": "https://api.rootflowai.com/v1/chat/completions",
+          "model": "gemini-3.8-flash",
+          "api_key_env": "ROOTFLOWAI_API_KEY",
+          "max_completion_tokens": 65536,
+          "http_token_limit_field": "max_tokens",
+          "thinking_type": "enabled",
+          "reasoning_effort": "high",
+          "connect_timeout_seconds": 15.0,
+          "request_timeout_seconds": 600,
+          "max_retries": 0,
+          "capability_profile": {
+            "tools": true,
+            "thinking": true,
+            "reasoning_effort": true,
+            "generation_seed": false
+          },
+          "stream": true,
+          "rootflow_protocol": {
+            "version": "rootflow.gemini38.chat.v2",
+            "access": "third-party compatible relay; not Google direct",
+            "capability_basis": "RootFlow endpoint/model listing plus upstream Google compatibility reference",
+            "relay_capabilities_live_verified": false,
+            "thought_signature": "preserve returned extra_content exactly in replay",
+            "tool_choice": "auto; single named submission mapped and host validated",
+            "requested_output_cap_semantics": "combined thinking and text; relay verification pending",
+            "billing": "reported raw total_tokens; never infer unavailable reasoning tokens"
+          }
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "Solve the supplied task. Use the attached Atomic Skills. Their sourced reference cards are background facts only when the requested relation matches; dated public evidence and explicit question wording take precedence. Keep deliberation focused on the decisive facts or mathematical distinction. Return only the requested entity or short phrase inside <answer>...</answer>. No explanation or alternative answers. Answer directly; no tool calls are needed.\n\n## Active authored SkillBank\nYou are an expert question answering agent.\n\n## Skill\n# Question Answering Skill\n\nYou are an expert trivia question answering agent. Your task is to provide the exact, canonical answer to trivia questions (frequently styled after *Jeopardy!* clues, crossword clues, or quiz bowl prompts) using the provided question and context snippets.\n\n## Output Format\n- Wrap your final answer strictly inside `<answer>...</answer>` tags (e.g., `<answer>Tennessee</answer>` or `<answer>strawberries</answer>`).\n- Output ONLY the `<answer>...</answer>` tags and the target answer text. Do not include commentary, explanations, reasoning, or extra punctuation outside the tags.\n\n### 3. Handling Telegraphic Clues, Single-Locality Prompts, & Category Omissions\n- **Single Locality / City Names**:\n  - When a prompt consists solely of a city or locality name without a question sentence:\n    - Major world cities (e.g., `Hamburg`) -> standard country: `Germany`.\n    - U.S. towns/communities (e.g., `Timonium`) -> standard state: `Maryland`.\n- **Centuries / Dates**:\n  - If a clue is a telegraphic phrase or name-event pairing without an overt interrogative pronoun (e.g., `\"Henry Ward Beecherfor adultery\"`), it frequently stems from a time-period category (e.g., \"CENTURIES\", \"NAME THE CENTURY\", or \"THE 1800s\"). Check whether the event occurred in a prominent historical era or century (e.g., `the 19th century`).\n\n### 4. Surnames, Mononyms, & Regnal Names vs. Full Names\n- **Monarchs, Emperors, and World Leaders standardly known by Single Name**:\n  - Write standard mononyms or regnal names without surnames:\n    - Write `Napoleon` (NOT `Napoleon Bonaparte`).\n    - Write `Charlemagne`.\n    - Write `Richard III` (for regnal names/Shakespearean characters).\n    - Write `Lenin` (NOT `Vladimir Lenin`).\n- **Authors, Playwrights, Poets, Philosophers, and Scientists**:\n  - Jeopardy! standard convention allows and records **SURNAME ONLY**:\n    - Write `Genet` (NOT `Jean Genet`).\n    - Write `Pascal` (NOT `Blaise Pascal`).\n    - Write `Havel` (or `Vaclav Havel`).\n- **Assassins, Notorious Criminals, and Infamous Figures**:\n  - Presidential assassins and infamous historical figures are standardly known and recorded by their **FULL NAME** (First + Last, or full name):\n    - Write `Charles Guiteau` (NOT just `Guiteau`).\n    - Write `John Wilkes Booth`, `Lee Harvey Oswald`.\n- **Modern Entertainers, Pop Culture Figures, & Art Patrons**:\n  - Figures normally known by a full professional name retain both: `Billie Holiday`, `Peggy Guggenheim`, `Eddie Money`, `Richard Marx`.\n  - Figures prior to a famous name change: `Cassius Clay`.\n\n### 1. Context Snippet Mining (Jeopardy! Dumps & Flashcards)\n- Many context snippets come directly from raw trivia databases, such as GitHub Jeopardy repositories (e.g., `jedoublen/jeopardy/..._Qs.txt`), J! Archive, or flashcards (e.g., StudyStack, Quizlet).\n- **The Pipe and Comma Delimiter Rules**:\n  - Look for patterns like `CATEGORY | Clue text | Answer` or `CLUE TEXT, ANSWER.` or `[PAR] ... CLUE, ANSWER.`.\n  - The text immediately following the final pipe (`|`) or flashcard comma separator is almost always the canonical exact-match answer.\n  - *Example*: `... of \"The Maids\" | Genet.` -> extract `Genet` (strip trailing period).\n  - *Example*: `ROCK \"E\" | In titles it preceded Eddie Money's \"Nights\"... | Endless.` -> extract `Endless`.\n  - *Example*: `TO COOK FOOD IN LIQUID JUST BELOW THE BOILING POINT, IT'S A WAY TO PAMPER YOUR EGGS, CODDLING.` -> extract `coddling`.\n- If an exact clue dump exists in the context, extract that precise answer token directly.\n\n## Domain Reference Facts & Flashcards\n\n- **U.S. History & Politics**:\n  - Only Southern senator who refused to secede with his state (from Tennessee): `Tennessee`.\n  - Wrote an explanation on June 16, 1881 of why he was going to kill President Garfield: `Charles Guiteau`.\n  - Henry Ward Beecher adultery trial / \"Henry Ward Beecherfor adultery\" century clue: `the 19th century`.\n  - 1815 Treaty of Paris signed after his final defeat at Waterloo: `Napoleon`.\n  - 1903 chic NYC dinner party (C.K.G. Billings) where guests ate from feedbags astride them: `horses`.\n  - Author of *The State & Revolution*: `Lenin`.\n  - Knights of Malta annual rent tribute paid to Charles V: `falcon` (or `a falcon`).\n- **Food, Agriculture & Festivals**:\n  - Coupes A L'Ananas ice cream dessert made with this tropical fruit, not bananas: `Pineapples`.\n  - Oxnard festival for \"this fruit\" / Tart Toss & shortcake-eating contest: `strawberries`.\n  - Originally called \"Saratoga Chips\" after the town in New York where first made: `potato chips` (or `Potato chips`).\n  - To cook food in liquid just below boiling point / way to pamper eggs: `coddling`.\n- **Biology & Nature**:\n  - Relative of Steller's Sea Cow found in Florida (\"this rare aquatic mammal\"): `the manatee`.\n  - Bird paid as rent by Knights of Malta: `falcon`.\n- **Literature & Drama**:\n  - Character answering to \"Gloucester\" because he begins the play as Duke of Gloucester, not king: `Richard III`.\n  - Edmund White's biography of French thief, novelist & playwright of *The Maids*: `Genet`.\n  - Rudyard Kipling's heroic mongoose: `Rikki-Tikki-Tavi`.\n  - Woodcarver father of Pinocchio: `Geppetto`.\n  - Prague stagehand turned dissident playwright (*Temptation*) and president: `Vaclav Havel`.\n- **Music & Pop Culture**:\n  - Word preceding Eddie Money's \"Nights\" & Richard Marx's \"Summer Nights\": `Endless`.\n  - Walk of Fame star awarded ~27 years after death (1986): `Billie Holiday`.\n  - Lively dance originating among Bohemian peasants in the 1830s: `Polka`.\n- **Sports & Olympics**:\n  - Panathenaic Stadium 1896 (and 2004) finish won by Spiridon Louis: `the marathon`.\n- **Art & Patrons**:\n  - Jackson Pollock's 1943 first solo exhibit at \"Art of this Century\" gallery: `Peggy Guggenheim`.\n- **Institutions & Geography**:\n  - Single-city prompt `Hamburg`: `Germany`.\n  - Single-locality prompt `Timonium`: `Maryland`.\n  - Institution of which the National Air & Space Museum is the largest museum: `Smithsonian Institution`.\n  - Marañón and Ucayali branches flowing in Peru: `the Amazon`.\n  - Northern New York mountain range with over 3 dozen peaks exceeding 4,000 feet: `Adirondacks` (or `the Adirondacks`).\n- **Science, Technology, Currency & Industry**:\n  - Smallest U.S. coin currently minted in physical size: `the dime` (or `a dime` / `dime`).\n  - Iron pickling/cleaning acid before galvanization: `hydrochloric acid`.\n  - Programming language named after Blaise Pascal: `Pascal`.\n  - Nautical term for canvas-covered blades of a windmill: `sails`.\n  - Television PIP feature: `Picture in Picture`.\n- **Economics & Linguistics**:\n  - Market featuring lengthy period of price drops (\"mauled when it's this market\"): `the bear`.\n  - \"From Middle Dutch for 'little barrel', yokel or hayseed\": `bumpkin`.\n  - Spoonerism for \"queer old dean\": `Dear old queen`.\n\n### 2. Number, Countability, and Pluralization Rules (Crucial)\nTrivia benchmarks frequently expect standard plural forms for fruits, vegetables, snacks, and countable food items:\n- **Fruits & Berries**:\n  - When clues ask for fruits or berries (e.g., festival fruit, pie filling, dessert ingredients, crop types), **default to the plural form**:\n    - \"Coupes A L'Ananas are ice cream desserts made with this tropical fruit, not bananas\" -> `Pineapples` (NOT `pineapple`; note the plural parallel with \"bananas\").\n    - Oxnard festival for \"this fruit\" / Tart Toss / shortcake -> `strawberries` (NOT `strawberry`).\n    - Blueberries, raspberries, blackberries, cranberries, cherries -> prefer plural unless the singular form is part of a strict proper title.\n- **Snacks, Vegetables, and Common Food Items**:\n  - Saratoga chips / thin fried snack -> `potato chips`.\n  - French fries, peanuts, etc. -> standard plural form.\n- **Countable Nouns vs. Single Specific Objects**:\n  - Check the grammatical referent of the clue. When \"they\" or a plural pronoun refers to the food/object, or when contrasted with a plural noun, keep it plural (`potato chips`, `strawberries`, `pineapples`, `horses`).\n\n### 5. Articles (\"The\", \"A\", \"An\") and Clue Phrasing\n- **Grammatical Clue Referents (\"this [noun]\")**:\n  - When the clue asks for an animal, coin, species, entity, event, or concept using \"this [noun]\" or \"1 of these [nouns]\", standard Jeopardy phrasing accepts either the bare noun or a/the:\n    - \"Knights of Malta paid ... annual rent of 1 of these birds\" -> `falcon` (or `a falcon`).\n    - \"Of the U.S. coins currently being minted, it's the smallest in size\" -> `the dime` (or `a dime` / `dime`).\n    - \"Steller's Sea Cow was a relative of this rare aquatic mammal found in Florida\" -> `the manatee`.\n    - \"had the finish of this, won back then by... Spiridon Louis\" -> `the marathon`.\n    - \"when it's this market that features a lengthy period of price drops\" -> `the bear`.\n- **Geographic Entities**:\n  - Retain \"the\" for geographical features that conventionally take the definite article:\n    - Rivers: `the Amazon`, `the Nile`, `the Mississippi`, `the Thames`.\n    - Deserts: `the Sahara`, `the Mojave`, `the Gobi`.\n    - Plural mountain ranges & archipelagos: `the Alps`, `the Rockies`, `the Adirondacks`, `the Bahamas`.\n  - Do NOT append redundant generic geographic nouns (e.g., write `the Amazon`, NOT `Amazon River`).\n  - States, provinces, and countries should be standard bare proper nouns: `Tennessee`, `Maryland`, `Germany`.\n- **General Rule**: Strip leading articles (\"the\", \"a\", \"an\") for standalone titles and proper nouns unless grammatically intrinsic or required by the rules above.\n\n### 6. Diacritics, Accents, and ASCII Normalization\n- Strip all accent marks, carons, umlauts, acutes, graves, and tildes from proper nouns and foreign names:\n  - Write `Vaclav Havel` (NOT `Václav Havel`).\n  - Write `Dvorak` (NOT `Dvořák`).\n  - Write `Moliere` (NOT `Molière`).\n  - Write `Cezanne` (NOT `Cézanne`).\n\n## Task Format\nYou will receive a CONTEXT containing document passages and a QUESTION.\nRead the context carefully and answer the question based on the information provided.\n\n## Answer Format\nThink step by step, then provide your final answer inside <answer>...</answer> tags.\nKeep your answer concise — typically a few words or a short phrase.\nDo not repeat the question. Do not include unnecessary explanation in the answer tags.\n\nExample:\n<answer>Abraham Lincoln</answer>"
+          },
+          {
+            "role": "user",
+            "content": "{\"goal\": \"Net,ace,foot fault\", \"inputs\": {\"context\": \"[DOC] [TLE] Serve (tennis) - Wikipedia [PAR] A serve in tennis is a shot to start a point. A player will hit the ball with a racquet \\nso it will fall into ... If the ball contacts the net on the serve but then proceeds to \\nthe proper ... A foot fault takes place when the server assumes an illegal position \\nwhile .... Ace  a serve that lands in the service box and is then untouched by the\\n... [DOC] [TLE] Glossary of tennis terms - Wikipedia [PAR] This page is a glossary of tennis terminology. Contents. A; B; C; D; E; F; G; H; I; J; \\nK; L; M; N; O; P; Q; R; S; T; U; V; W; X; Y; Z. References; External links. A[edit]. ace\\n: Serve where the tennis ball lands inside the service box and is not ..... The \\ndefinition of a foot fault has changed several times since the introduction of (lawn)\\n... [DOC] [TLE] Foot fault question (ugh) | Talk Tennis [PAR] It is not a problem with him though, he does ace me some times, but I at least .... A \\nfootfault is as much a fault as hitting the ball in the net, but apparently this is... [DOC] [TLE] Foot Fault Rampant | Talk Tennis [PAR] As I have played USTA I have noticed that a lot of people foot fault. ... catch it \\nwhen you play singles but in doubles the guy at the net should be able to call it. ... \\nSo, keeping this in mind, I like to call foot-faults when my opponent serves an ace\\n. [DOC] [TLE] Statistical Guidelines and Definitions | Volleyball | Athletics | SDHSAA [PAR] ACE -- A serve which lands in the opponent's court without being touched, or is \\ntouched, but unable to be kept in play by one or ... ...a dig attempt that crosses the \\nnet and lands on the floor for a point the attacking team. ... ...the server foot faults. [DOC] [TLE] Tennis: Glossary of terms and definitions - Ducksters [PAR] tennis-net. Ace - a serve that is a winner without the receiving tennis player able \\nto ... Foot fault - when the server steps over the baseline while making a serve. [DOC] [TLE] Question: Ace or replay on set point?  Officials Training ... [PAR] Feb 20, 2012 ... Set point and the server serves an ace serve to win the set. ... (Fans that \\nwitnessed it said there was no foot fault.) ... have been any number of faults that \\noccurred (ranging from foot fault to net, ball handling, center line, etc.). [DOC] [TLE] Foot Faults in Tennis | iSport.com [PAR] This tennis guide explains how to serve legally and avoid foot faults... Read More\\n. ... A net ball or let occurs if the ball touches the net cord, and the serve is \\nconsidered void. If you're unfamiliar these ... How to Hit an Ace in Tennis. This \\ntennis... [DOC] [TLE] Misunderstood Rules and Customs of the Game - Kentfield Tennis ... [PAR] He doesn't want to call the serve a fault; he just isn't sure. ... Will he get an ace \\nagain? Not likely .... The foot fault is the only call that can be made across the net. [DOC] [TLE] The Rules of Tennis - Winchester [PAR] There shall be no advertisement on the net, strap, band or singles sticks. .... In a \\nnon-officiated match, the Receiver, or his partner, may call foot faults after all .... \\nNote, however, that if the serve is an unmistakable ace - that is, the Umpire is \\nsure... [DOC] [TLE] The Code - USTA.com [PAR] When a serve hits a player's partner who is stationed at the net, is it a let, fault, or \\nloss of point? .... Players should not foot fault because it violates the ITF. Rules of \\n... serve is an apparent or near ace, any let shall be called promptly. 28. Obvious\\n... [DOC] [TLE] Tennis Vocabulary | English Club\"}, \"local_results\": [], \"local_reads\": [], \"guidance\": [], \"human_frontier_skill_ids\": [\"skill_hs_searchqa_solve_target_gepa_20261024\", \"skill_hs_searchqa_evidence_target_gepa_20261024\", \"skill_hs_searchqa_surface_target_gepa_20261024\"], \"reference_card_ids\": [\"supplied_gepa_seed44_train_facts\"], \"final_question_to_answer\": \"Net,ace,foot fault\", \"final_submission_instruction\": \"Fill only the unknown requested by this exact clue. Sources are evidence, not additional questions. Return one <answer>...</answer>.\"}"
+          }
+        ],
+        "private_reasoning_redacted": false,
+        "messages_sha256": "0cb1fc956294cd87b0e966d7cfec03e7ad4bf3c973a57fdd9afe8f00d8780fd2",
+        "tools_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "messages_utf8_bytes": 15354,
+        "tools_utf8_bytes": 2,
+        "policy_contexts": [],
+        "policy_blocks": [],
+        "policy_context_sha256": [],
+        "tools": [],
+        "captured_after_build_payload": true,
+        "serialized_payload_utf8_bytes": 15536
+      },
+      "endpoint": "https://api.rootflowai.com/v1/chat/completions",
+      "model_id": "gemini-3.8-flash",
+      "raw_usage": null,
+      "public_response": null,
+      "started_at": 1792794244.0084374,
+      "ended_at": 1792794274.7850428,
+      "outcome": "error",
+      "http_status": 504,
+      "retry_count": 0,
+      "usage_status": "unavailable",
+      "usage": null,
+      "error_code": "provider_timeout",
+      "sanitized_error": "HTTP 504 from LLM provider",
+      "payload_fingerprint": "430a87acc11c1f798f0549b3e61a86cae3efa481c5d5cce6a35b2df12b5e8a6f",
+      "payload_field_names": [
+        "max_tokens",
+        "messages",
+        "model",
+        "reasoning_effort",
+        "stream",
+        "stream_options"
+      ],
+      "reasoning_content_present": false,
+      "reasoning_content_chars": 0,
+      "reasoning_content_sha256": "",
+      "response_diagnostic": {
+        "body_bytes": 175,
+        "body_sha256": "63f5b29227c75070dc4d224a25600444f8bc3b3e4199250374fb75109896f3de",
+        "error": {
+          "code": "gateway_timeout",
+          "type": "gateway_timeout",
+          "message": "è¯·æ±å¤çè¶æ¶ï¼è¯·ç¨åéè¯ (request id: 202610232224046904156728268d9d6YqFilxdz)"
+        }
+      },
+      "attempt_latency_ms": 30776.607
+    }
+  ],
+  "failed_audit_path": "/home/yangchengyu/searchqa_target_accuracy_r2_20261024/gemini/fulltest1400/gepa/test/requests/searchqa:1200fe70bda14116affdd48427cc63ee_attempt1.json",
+  "task_id": "searchqa:1200fe70bda14116affdd48427cc63ee",
+  "binding": {
+    "parent_scope": "/home/yangchengyu/searchqa_target_accuracy_r2_20261024/gemini/fulltest1400/gepa/test:adbc3043209bede60bdfb8958a6394c883201fb4aef402d1feada92635b803db",
+    "logical_decision_id": "b9fceeba1a3645bda08759d129cdbe7a",
+    "purpose": "runtime",
+    "retry_key": "bdb5bb3749e527d5bab070b7c1c2da647c9dbf739d5367dfbf66b957cb5f6270",
+    "payload_digest": "78d0332fbb700f9ddc838ac499ee20b52309e9feb5f4ce4ec009ff874d68875e",
+    "initial_failures": [
+      "provider_request_3605fc5856654af0b0e9c2e0cdb81e12",
+      "provider_request_2d604b319bec4d61b118949bac4633de"
+    ]
+  },
+  "retry_entry": {
+    "policy": {
+      "version": "bounded-provider-retry.v2",
+      "max_retries": 3,
+      "dialects": [
+        "minimax_m3_chat",
+        "glm_53_chat",
+        "rootflow_gemini38_chat"
+      ],
+      "backoff_seconds": [
+        10,
+        30,
+        60
+      ],
+      "minimum_completion_cap": 1024,
+      "http_statuses": [
+        408,
+        429,
+        500,
+        502,
+        503,
+        504,
+        529
+      ],
+      "stream_error_messages": [
+        "Incomplete provider SSE termination"
+      ],
+      "minimax_codes": [
+        1000,
+        1001,
+        1002,
+        1013,
+        1024,
+        1033,
+        1041,
+        1045,
+        2062,
+        2064,
+        2066
+      ],
+      "billing": "Every physical attempt is retained; absent usage keeps its full reservation.",
+      "payload": "Same messages/tools/model; retry output cap can only shrink to fit existing task/global budgets.",
+      "exhaustion": "Stop without scoring; never reset the retry allowance on resume."
+    },
+    "context": {
+      "session_id": "a7402259a0404e159dd53509a445e7a9",
+      "stage": "runtime",
+      "request_sequence": null,
+      "repair": 0,
+      "purpose": "runtime",
+      "logical_decision_id": "b9fceeba1a3645bda08759d129cdbe7a",
+      "parent_task_id": "searchqa:1200fe70bda14116affdd48427cc63ee",
+      "trial_id": null,
+      "trial_execution_id": null,
+      "parent_scope": "/home/yangchengyu/searchqa_target_accuracy_r2_20261024/gemini/fulltest1400/gepa/test:adbc3043209bede60bdfb8958a6394c883201fb4aef402d1feada92635b803db",
+      "parent_token_limit": 128000,
+      "train_parent": false,
+      "parent_finish_reserve": 20009,
+      "finish_request_reserve": 1,
+      "budget_pool": "solve",
+      "budget_pool_limit": null,
+      "payload_max_bytes": null
+    },
+    "failures": [
+      "provider_request_3605fc5856654af0b0e9c2e0cdb81e12",
+      "provider_request_2d604b319bec4d61b118949bac4633de"
+    ],
+    "next_retry": true,
+    "retry_completion_cap": 11383,
+    "stopped": "Retry cannot fit the remaining task/global budget"
+  }
+}

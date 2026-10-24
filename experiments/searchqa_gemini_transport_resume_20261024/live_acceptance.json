@@ -1,0 +1,73 @@
+{
+  "passed": true,
+  "at": "2026-10-24T05:35:54.853136+00:00",
+  "identity_check": {
+    "passed": true,
+    "stage": "fulltest1400",
+    "tasks": 1382,
+    "arms": [
+      "gepa"
+    ]
+  },
+  "source": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "old_completed_retained": 18,
+  "remaining_tasks": 1382,
+  "retry_count_preserved": true,
+  "payload_identical": true,
+  "old_unknown_reservations_preserved": true,
+  "original_task19": {
+    "task_id": "searchqa:1200fe70bda14116affdd48427cc63ee",
+    "status": "completed",
+    "correct": true,
+    "native_graph_completed": true,
+    "program_ok": true,
+    "new_physical_attempts": 1,
+    "infrastructure_retry_index": 2,
+    "tokens": 4428
+  },
+  "status": {
+    "stage": "fulltest1400",
+    "arms": {
+      "gepa": {
+        "completed": 24,
+        "total": 1400,
+        "correct": 23,
+        "tokens": 130455,
+        "native_graphs": 24,
+        "program_calls": 24,
+        "program_ok": 24,
+        "new_completed": 6,
+        "inherited_completed": 18
+      }
+    },
+    "campaign_tokens": 1588756,
+    "campaign_http": 418,
+    "inflight_or_unmetered": 10,
+    "unknown_reserved_tokens": 738516,
+    "billing_blocked": true,
+    "refusals": 0,
+    "status": "running",
+    "at": "2026-10-24T05:35:54.879526+00:00",
+    "alive": true,
+    "continuation_tokens": 28337,
+    "continuation_http": 7,
+    "remaining_admission_tokens": 7945017,
+    "remaining_http": 1839,
+    "transport_failure_count": 2,
+    "supervisor": {
+      "state": "running",
+      "docker_recoveries": 0,
+      "at": "2026-10-24T05:34:40.889382+00:00"
+    },
+    "current": {
+      "task_id": "searchqa:f771a66784f2494b8c0a5aa81f9bd09f",
+      "arm": "gepa",
+      "started_at": "2026-10-24T05:35:52.847908+00:00"
+    }
+  },
+  "billing_note": "A running HTTP admission can temporarily set billing_blocked=true in the raw status snapshot. It is not a completed unmetered failure; admitted, unknown_billing and metered must be inspected separately."
+}

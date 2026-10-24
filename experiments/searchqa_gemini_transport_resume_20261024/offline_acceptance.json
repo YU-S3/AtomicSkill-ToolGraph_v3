@@ -1,0 +1,88 @@
+{
+  "passed": true,
+  "real_http": 0,
+  "source": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "driver_sha256": "5085be82ae6a59c1c1260d586f6ee0ff91755d9c17f8a3a8e083c5e7e139f513",
+  "checks": [
+    {
+      "mode": "normal",
+      "passed": true,
+      "intercepted_http": 1,
+      "fixture": "/home/yangchengyu/gemini_transport_offline_f2uk311r/normal"
+    },
+    {
+      "mode": "two_504",
+      "passed": true,
+      "intercepted_http": 3,
+      "fixture": "/home/yangchengyu/gemini_transport_offline_f2uk311r/two_504"
+    },
+    {
+      "mode": "restart",
+      "passed": true,
+      "intercepted_http": 2,
+      "fixture": "/home/yangchengyu/gemini_transport_offline_f2uk311r/restart"
+    },
+    {
+      "mode": "historical_resume",
+      "passed": true,
+      "intercepted_http": 2,
+      "fixture": "/home/yangchengyu/gemini_transport_offline_f2uk311r/historical_resume"
+    },
+    {
+      "mode": "exhaustion",
+      "passed": true,
+      "intercepted_http": 4,
+      "fixture": "/home/yangchengyu/gemini_transport_offline_f2uk311r/exhaustion"
+    },
+    {
+      "mode": "global_cap",
+      "passed": true,
+      "intercepted_http": 1,
+      "fixture": "/home/yangchengyu/gemini_transport_offline_f2uk311r/global_cap"
+    },
+    {
+      "mode": "partial_stream",
+      "passed": true,
+      "intercepted_http": 2,
+      "fixture": "/home/yangchengyu/gemini_transport_offline_f2uk311r/partial_stream"
+    },
+    {
+      "mode": "unknown_stream",
+      "passed": true,
+      "intercepted_http": 2,
+      "fixture": "/home/yangchengyu/gemini_transport_offline_f2uk311r/unknown_stream"
+    },
+    {
+      "mode": "timeout",
+      "passed": true,
+      "intercepted_http": 2,
+      "fixture": "/home/yangchengyu/gemini_transport_offline_f2uk311r/timeout"
+    },
+    {
+      "mode": "docker_resume",
+      "passed": true,
+      "intercepted_http": 1,
+      "fixture": "/home/yangchengyu/gemini_transport_offline_f2uk311r/docker_resume"
+    },
+    {
+      "mode": "no_retry_auth_quota_or_refusal",
+      "passed": true,
+      "intercepted_http": 0
+    }
+  ],
+  "files": {
+    "campaign.py": "5085be82ae6a59c1c1260d586f6ee0ff91755d9c17f8a3a8e083c5e7e139f513",
+    "runtime.py": "385803a8af3afc91e82153113c35a781ea7561db9cf61baa3f476f90d053f6d4",
+    "transport_budget.py": "205420930e508efadec9c32d7b5390d15d6c8aeffb4422903343abf5257d606f",
+    "provider_retry.py": "c5b904e0f38299a32c59faa74df02732c3bd9082fd55f58110282fb8693f73c1",
+    "provider_outcomes.py": "b3cf0bce45e7951ae6417b437f8fe10ba1b5c7e86975a70d80e8da2ee76dbb0f",
+    "infrastructure_guard.py": "39a6e36463d6dad832bbe5c9a5c6c43429934d0d3c321d50bb225bf6b644cd3a",
+    "continue_test.py": "4a34497fd1251b3cf561493b26e950922afdc59a75661b671866962b7e7d60af",
+    "check_offline.py": "92fe5081f576dfbf56a54f2718e11d88098922438627455b5d8ef91944fb03a1"
+  },
+  "at": "2026-10-24T05:34:22.425812+00:00"
+}

@@ -1,0 +1,41 @@
+{
+  "results": {
+    "minimax_r2": {
+      "count": 1400,
+      "correct": 1146.0,
+      "tokens": 4601063
+    },
+    "glm_v7": {
+      "count": 1400,
+      "correct": 1153.0,
+      "tokens": 3441413
+    },
+    "deepseek_v2_direct": {
+      "count": 1400,
+      "correct": 1187.0,
+      "tokens": 4007018
+    },
+    "deepseek_v7_text_compiler": {
+      "count": 1400,
+      "correct": 1190.0,
+      "tokens": 4107819
+    },
+    "gemini_gepa_seed42": {
+      "count": 1400,
+      "correct": 1196.0,
+      "tokens": 4643075
+    },
+    "gemini_gepa_seed43": {
+      "count": 1400,
+      "correct": 1227.0,
+      "tokens": 17286508
+    },
+    "gemini_gepa_seed44": {
+      "count": 1400,
+      "correct": 1233.0,
+      "tokens": 6102641
+    }
+  },
+  "canonical_data": "/home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1/searchqa",
+  "post_test_development": true
+}
