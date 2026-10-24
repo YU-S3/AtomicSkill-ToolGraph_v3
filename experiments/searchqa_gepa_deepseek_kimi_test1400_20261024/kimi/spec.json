@@ -1,0 +1,12 @@
+{
+  "tasks": "/home/yangchengyu/main_experiment_v1_resources_cf4_r3_20261009_v1/searchqa/test.json",
+  "base_config": "/mnt/d/T3S_exp/deliveries/searchqa_gepa_deepseek_kimi_test1400_20261024/kimi/base_config.json",
+  "arms": {
+    "gepa": {
+      "kind": "native",
+      "package": "/home/yangchengyu/searchqa_gemini_budget_extension_20261024/fulltest1400/gepa/input",
+      "frozen_source": "/home/yangchengyu/searchqa_gemini_budget_extension_20261024/fulltest1400/gepa/frozen_bank"
+    }
+  },
+  "purpose": "One new full Test1400 with the exact frozen authored Bank that scored Gemini 1246/1400. Same canonical public inputs and official scorer. Configured model parameters; post-Test development evaluation."
+}

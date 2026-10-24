@@ -1,0 +1,86 @@
+{
+  "passed": true,
+  "real_http": 0,
+  "checks": [
+    {
+      "model": "deepseek",
+      "mode": "normal",
+      "passed": true,
+      "intercepted_http": 1,
+      "fixture": "/home/yangchengyu/searchqa_gepa_crossmodel_offline_8stdl8wj/deepseek_normal"
+    },
+    {
+      "model": "deepseek",
+      "mode": "two_504",
+      "passed": true,
+      "intercepted_http": 3,
+      "fixture": "/home/yangchengyu/searchqa_gepa_crossmodel_offline_8stdl8wj/deepseek_two_504"
+    },
+    {
+      "model": "deepseek",
+      "mode": "exhaustion",
+      "passed": true,
+      "intercepted_http": 4,
+      "fixture": "/home/yangchengyu/searchqa_gepa_crossmodel_offline_8stdl8wj/deepseek_exhaustion"
+    },
+    {
+      "model": "deepseek",
+      "mode": "refusal",
+      "passed": true,
+      "intercepted_http": 1,
+      "fixture": "/home/yangchengyu/searchqa_gepa_crossmodel_offline_8stdl8wj/deepseek_refusal"
+    },
+    {
+      "model": "kimi",
+      "mode": "normal",
+      "passed": true,
+      "intercepted_http": 1,
+      "fixture": "/home/yangchengyu/searchqa_gepa_crossmodel_offline_8stdl8wj/kimi_normal"
+    },
+    {
+      "model": "kimi",
+      "mode": "two_504",
+      "passed": true,
+      "intercepted_http": 3,
+      "fixture": "/home/yangchengyu/searchqa_gepa_crossmodel_offline_8stdl8wj/kimi_two_504"
+    },
+    {
+      "model": "kimi",
+      "mode": "exhaustion",
+      "passed": true,
+      "intercepted_http": 4,
+      "fixture": "/home/yangchengyu/searchqa_gepa_crossmodel_offline_8stdl8wj/kimi_exhaustion"
+    },
+    {
+      "model": "kimi",
+      "mode": "refusal",
+      "passed": true,
+      "intercepted_http": 1,
+      "fixture": "/home/yangchengyu/searchqa_gepa_crossmodel_offline_8stdl8wj/kimi_refusal"
+    },
+    {
+      "model": "kimi",
+      "mode": "incomplete_stream",
+      "passed": true,
+      "intercepted_http": 2,
+      "fixture": "/home/yangchengyu/searchqa_gepa_crossmodel_offline_8stdl8wj/kimi_incomplete_stream"
+    }
+  ],
+  "source": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "driver_sha256": "5085be82ae6a59c1c1260d586f6ee0ff91755d9c17f8a3a8e083c5e7e139f513",
+  "files": {
+    "campaign.py": "5085be82ae6a59c1c1260d586f6ee0ff91755d9c17f8a3a8e083c5e7e139f513",
+    "runtime.py": "385803a8af3afc91e82153113c35a781ea7561db9cf61baa3f476f90d053f6d4",
+    "transport_budget.py": "205420930e508efadec9c32d7b5390d15d6c8aeffb4422903343abf5257d606f",
+    "provider_retry.py": "5c96e3c62588e7823650300a93545b566a9490db2a159ab57d9c2f339b02f9fe",
+    "provider_outcomes.py": "b3cf0bce45e7951ae6417b437f8fe10ba1b5c7e86975a70d80e8da2ee76dbb0f",
+    "infrastructure_guard.py": "39a6e36463d6dad832bbe5c9a5c6c43429934d0d3c321d50bb225bf6b644cd3a",
+    "run_models.py": "70be30ecb900b2128b6df3e3277ea19d78e797635c4e319a1bf6cecf82fa71d4",
+    "check_models.py": "07903f45c353cf1e5f07be817ec0f5d46aa4502072059ff8d3ab82b36e073cb5"
+  },
+  "at": "2026-10-24T11:19:45.163645+00:00"
+}

@@ -1,0 +1,99 @@
+{
+  "passed": true,
+  "at": "2026-10-24T11:23:01.272480+00:00",
+  "source": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "models": {
+    "deepseek": {
+      "first_task": "searchqa:5093b6d997674d25be29a4c94fcd5185",
+      "sent_model": "deepseek-v4-flash",
+      "response_model": "deepseek-flash",
+      "response_model_preserved_verbatim": true,
+      "completion_cap": 32768,
+      "normal_generation_parameters_verified": true,
+      "bank_hash_identical_to_gemini_89percent": true,
+      "prior_costs_preserved": true,
+      "status": {
+        "stage": "fulltest1400",
+        "arms": {
+          "gepa": {
+            "completed": 26,
+            "total": 1400,
+            "correct": 25,
+            "tokens": 109633,
+            "native_graphs": 26,
+            "program_calls": 26,
+            "program_ok": 26
+          }
+        },
+        "campaign_tokens": 74021651,
+        "campaign_http": 16763,
+        "inflight_or_unmetered": 1,
+        "unknown_reserved_tokens": 59238,
+        "billing_blocked": false,
+        "refusals": 0,
+        "status": "running",
+        "at": "2026-10-24T11:23:02.387352+00:00",
+        "model": "deepseek-v4-flash",
+        "new_measured_tokens": 113666,
+        "new_http": 27,
+        "new_error_attempts": 0,
+        "new_unknown_reserved_tokens": 0,
+        "inflight": 0,
+        "remaining_admission_tokens": 9886334,
+        "supervisor": {
+          "state": "running",
+          "docker_recoveries": 0,
+          "at": "2026-10-24T11:20:45.947387+00:00"
+        }
+      }
+    },
+    "kimi": {
+      "first_task": "searchqa:5093b6d997674d25be29a4c94fcd5185",
+      "sent_model": "kimi-k2.6",
+      "response_model": "kimi-k2.6",
+      "response_model_preserved_verbatim": true,
+      "completion_cap": 65536,
+      "normal_generation_parameters_verified": true,
+      "bank_hash_identical_to_gemini_89percent": true,
+      "prior_costs_preserved": true,
+      "status": {
+        "stage": "fulltest1400",
+        "arms": {
+          "gepa": {
+            "completed": 13,
+            "total": 1400,
+            "correct": 12,
+            "tokens": 61036,
+            "native_graphs": 13,
+            "program_calls": 13,
+            "program_ok": 13
+          }
+        },
+        "campaign_tokens": 5404688,
+        "campaign_http": 1414,
+        "inflight_or_unmetered": 2,
+        "unknown_reserved_tokens": 158735,
+        "billing_blocked": true,
+        "refusals": 0,
+        "status": "running",
+        "at": "2026-10-24T11:23:02.835901+00:00",
+        "model": "kimi-k2.6",
+        "new_measured_tokens": 61036,
+        "new_http": 14,
+        "new_error_attempts": 0,
+        "new_unknown_reserved_tokens": 0,
+        "inflight": 1,
+        "remaining_admission_tokens": 9857658,
+        "supervisor": {
+          "state": "running",
+          "docker_recoveries": 0,
+          "at": "2026-10-24T11:20:45.932028+00:00"
+        }
+      }
+    }
+  }
+}

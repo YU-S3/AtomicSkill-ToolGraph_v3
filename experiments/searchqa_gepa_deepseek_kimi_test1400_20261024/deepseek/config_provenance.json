@@ -1,0 +1,53 @@
+{
+  "source": "/home/yangchengyu/searchqa_v7_repeat2_test1400_seed42_20261021/fulltest1400/v7_repeat_1/config.json",
+  "sha256": "007d4f3af59341737f69710c16bbd178fff944136e5c520e75d2d8ff9d3228c9",
+  "normal_generation_parameters_unchanged": true,
+  "previous_provider_max_retries": 4,
+  "new_provider_max_retries": 0,
+  "durable_outer_retry_policy": {
+    "version": "bounded-provider-retry.v4",
+    "max_retries": 3,
+    "dialects": [
+      "deepseek_v4_chat",
+      "moonshot_k2_chat",
+      "minimax_m3_chat",
+      "glm_53_chat",
+      "rootflow_gemini38_chat"
+    ],
+    "backoff_seconds": [
+      30,
+      90,
+      180
+    ],
+    "minimum_completion_cap": 1024,
+    "http_statuses": [
+      408,
+      429,
+      500,
+      502,
+      503,
+      504,
+      529
+    ],
+    "stream_error_messages": [
+      "Incomplete provider SSE termination"
+    ],
+    "minimax_codes": [
+      1000,
+      1001,
+      1002,
+      1013,
+      1024,
+      1033,
+      1041,
+      1045,
+      2062,
+      2064,
+      2066
+    ],
+    "billing": "Every physical attempt is retained; absent usage keeps its full reservation.",
+    "payload": "Same messages/tools/model and original output cap; failed transport remains globally charged, outside productive task tokens.",
+    "exhaustion": "Stop without scoring; never reset the retry allowance on resume."
+  },
+  "bank_runtime_changed_to_requested_gepa_bank": true
+}
