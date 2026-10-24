@@ -1,0 +1,59 @@
+{
+  "passed": true,
+  "at": "2026-10-24T10:33:21.757720+00:00",
+  "identity_check": {
+    "passed": true,
+    "stage": "fulltest1400",
+    "tasks": 84,
+    "arms": [
+      "gepa"
+    ]
+  },
+  "prior_attempts_unchanged": true,
+  "parent_budget_unchanged": true,
+  "token_increment": 500000,
+  "http_increment": 0,
+  "new_completed": 12,
+  "new_model_errors": 0,
+  "status": {
+    "stage": "fulltest1400",
+    "arms": {
+      "gepa": {
+        "completed": 1328,
+        "total": 1400,
+        "correct": 1185,
+        "tokens": 7846472,
+        "native_graphs": 1328,
+        "program_calls": 1328,
+        "program_ok": 1328,
+        "new_completed": 12,
+        "inherited_completed": 1316
+      }
+    },
+    "campaign_tokens": 9304773,
+    "campaign_http": 1723,
+    "inflight_or_unmetered": 11,
+    "unknown_reserved_tokens": 820638,
+    "billing_blocked": true,
+    "refusals": 0,
+    "status": "running",
+    "at": "2026-10-24T10:33:21.807623+00:00",
+    "limits": {
+      "token_limit": 10772289,
+      "request_limit": 2257,
+      "finish_reserve": 0
+    },
+    "remaining_admission_tokens": 646878,
+    "supervisor": {
+      "state": "running",
+      "docker_recoveries": 0,
+      "at": "2026-10-24T10:31:53.549060+00:00"
+    },
+    "billing_states": {
+      "admitted": 1,
+      "metered": 1712,
+      "unknown_billing": 10
+    }
+  },
+  "note": "admitted is an active HTTP request, not a new unknown-billing failure."
+}

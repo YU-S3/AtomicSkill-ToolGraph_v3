@@ -1,0 +1,28 @@
+{
+  "status": "approved",
+  "user_request": "批准追加50万 tokens，继续跑完",
+  "at": "2026-10-24T10:31:41.678128+00:00",
+  "old_limits": {
+    "token_limit": 10272289,
+    "request_limit": 2257,
+    "finish_reserve": 0
+  },
+  "new_limits": {
+    "token_limit": 10772289,
+    "request_limit": 2257,
+    "finish_reserve": 0
+  },
+  "additional_token_limit": 500000,
+  "additional_http_limit": 0,
+  "parent": "/home/yangchengyu/searchqa_gemini_transport_resume_20261024",
+  "parent_budget_sha256": "212136e6f3986809b8f2e86e03b554341a616ce3a1c29898df73af631a9e0f45",
+  "retained_attempts": 1710,
+  "retained_attempts_digest": "bb81023dc00d9275a89054636998c2eb117010a8ce7e9d6efc61b07870265a08",
+  "retained_completed": 1316,
+  "retained_results_digest": "a50d19f97332bc96b62a47c3648de314c1a5cdbb3ecc0445b0eeb7cf35a31e8d",
+  "child": "/home/yangchengyu/searchqa_gemini_budget_extension_20261024",
+  "child_plan_sha256": "1d83450f40462d465244b6ba122ff70c393294c5234b2548ee3eab6958ade693",
+  "remaining_tasks": 84,
+  "same_bank_model_inputs_scorer": true,
+  "runtime_unchanged": "/mnt/d/T3S_exp/deliveries/searchqa_gemini_transport_resume_20261024"
+}

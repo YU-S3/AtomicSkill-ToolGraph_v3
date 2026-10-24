@@ -1,0 +1,24 @@
+{
+  "parent": "/home/yangchengyu/searchqa_gemini_transport_resume_20261024",
+  "ancestors": [
+    "/home/yangchengyu/searchqa_target_accuracy_r2_20261024/gemini",
+    "/home/yangchengyu/searchqa_gemini_transport_resume_20261024"
+  ],
+  "parent_completed": {
+    "gepa": {
+      "completed": 1316,
+      "total": 1316,
+      "correct": 1174,
+      "tokens": 7788825,
+      "native_graphs": 1316,
+      "program_calls": 1316,
+      "program_ok": 1316,
+      "new_completed": 1298,
+      "inherited_completed": 18
+    }
+  },
+  "prior_searchqa_tokens": 9247126,
+  "prior_searchqa_http": 1710,
+  "all_prior_costs_and_unknown_reservations_retained": true,
+  "authorization": "/home/yangchengyu/searchqa_gemini_budget_extension_20261024/budget_extension_manifest.json"
+}

@@ -1,0 +1,35 @@
+{
+  "passed": true,
+  "real_http": 0,
+  "intercepted_http": 1,
+  "fixture": "/home/yangchengyu/gemini_budget_extension_offline_n9wh4ylz",
+  "extension_sha256": "be868b7a766354ee64b954fc01fcc22bdcf5b77bc977f9ba7ac9289f2d998848",
+  "runtime_files": {
+    "campaign.py": "5085be82ae6a59c1c1260d586f6ee0ff91755d9c17f8a3a8e083c5e7e139f513",
+    "runtime.py": "385803a8af3afc91e82153113c35a781ea7561db9cf61baa3f476f90d053f6d4",
+    "transport_budget.py": "205420930e508efadec9c32d7b5390d15d6c8aeffb4422903343abf5257d606f",
+    "provider_retry.py": "c5b904e0f38299a32c59faa74df02732c3bd9082fd55f58110282fb8693f73c1",
+    "provider_outcomes.py": "b3cf0bce45e7951ae6417b437f8fe10ba1b5c7e86975a70d80e8da2ee76dbb0f",
+    "infrastructure_guard.py": "39a6e36463d6dad832bbe5c9a5c6c43429934d0d3c321d50bb225bf6b644cd3a",
+    "continue_test.py": "4a34497fd1251b3cf561493b26e950922afdc59a75661b671866962b7e7d60af",
+    "check_offline.py": "92fe5081f576dfbf56a54f2718e11d88098922438627455b5d8ef91944fb03a1"
+  },
+  "checks": [
+    "exact_500000_token_increase",
+    "same_http_limit",
+    "old_attempts_unchanged",
+    "retry_counters_and_unknown_reservations_preserved",
+    "canonical_prefix_and_remaining_ids",
+    "identical_normal_request_parameters",
+    "actual_native_graph_and_docker_submit",
+    "completed_resume_zero_http",
+    "frozen_hash_unchanged"
+  ],
+  "retained_completed": 1316,
+  "source": {
+    "git_sha": "28ac1ca31cc5f7f1b3d5772fedd3f84c489cebf9",
+    "tracked_dirty": false,
+    "source_sha256": "ffe84c8a1718ae7286d479f07b4828a9613a0f1bb0c7cd9f8326c2ed805a9486"
+  },
+  "at": "2026-10-24T10:31:30.657737+00:00"
+}

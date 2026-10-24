@@ -1,0 +1,12 @@
+{
+  "tasks": "/mnt/d/T3S_exp/deliveries/searchqa_gemini_budget_extension_20261024/remaining_tasks.json",
+  "base_config": "/home/yangchengyu/searchqa_gemini_transport_resume_20261024/fulltest1400/gepa/config.json",
+  "arms": {
+    "gepa": {
+      "kind": "native",
+      "package": "/home/yangchengyu/searchqa_gemini_transport_resume_20261024/fulltest1400/gepa/input",
+      "frozen_source": "/home/yangchengyu/searchqa_gemini_transport_resume_20261024/fulltest1400/gepa/frozen_bank"
+    }
+  },
+  "purpose": "Authorized +500000 cumulative tokens. Continue remaining canonical Test tasks with identical Bank/model/input/scorer and all prior results, retries and charges."
+}
